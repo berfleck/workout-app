@@ -315,25 +315,23 @@ if st.session_state.sessao:
 
     st.markdown("---")
 
-    # Exibir blocos
+    # Exibir blocos — layout compacto
     for bloco in sessao.blocos:
         exercicios_bloco = [bloco.ex1]
         if bloco.ex2:
             exercicios_bloco.append(bloco.ex2)
 
-        with st.container(border=True):
-            st.caption(f"BLOCO {bloco.label}")
-            for idx, ex in enumerate(exercicios_bloco, 1):
-                eq = ex.eq_primario + (f" + {ex.eq_secundario}" if ex.eq_secundario else "")
-                obs = f" · *{ex.obs}*" if ex.obs else ""
-                col_n, col_info = st.columns([1, 11])
-                with col_n:
-                    st.markdown(f"**{bloco.label}{idx}**")
-                with col_info:
-                    st.markdown(f"**{ex.nome}**")
-                    st.caption(f"`{ex.purpose}` · `{ex.regiao}` · fd:{ex.fadiga} · cx:{ex.complexidade} · 🔧 {eq}{obs}")
-                if idx < len(exercicios_bloco):
-                    st.divider()
+        linhas = []
+        for idx, ex in enumerate(exercicios_bloco, 1):
+            eq = ex.eq_primario + (f" + {ex.eq_secundario}" if ex.eq_secundario else "")
+            obs = f" · {ex.obs}" if ex.obs else ""
+            linhas.append(f"**{bloco.label}{idx}** &nbsp; {ex.nome} &nbsp; <span style='color:#9ca3af;font-size:12px'>`{ex.purpose}` · 🔧 {eq}{obs}</span>")
+
+        st.markdown(
+            "<br>".join(linhas),
+            unsafe_allow_html=True,
+        )
+        st.markdown("<hr style='margin:6px 0; border-color:#f3f4f6'>", unsafe_allow_html=True)
 
     st.markdown("---")
 
