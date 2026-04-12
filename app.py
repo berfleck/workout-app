@@ -26,7 +26,7 @@ html, body, [class*="css"] {
     font-family: 'DM Sans', sans-serif;
 }
 
-/* Sidebar */
+/* Sidebar — compacta */
 section[data-testid="stSidebar"] {
     background: #0f1117;
     border-right: 1px solid #1e2130;
@@ -34,14 +34,89 @@ section[data-testid="stSidebar"] {
 section[data-testid="stSidebar"] * {
     color: #c8ccd8 !important;
 }
-section[data-testid="stSidebar"] .stSelectbox label,
-section[data-testid="stSidebar"] .stMultiSelect label,
-section[data-testid="stSidebar"] .stSlider label,
+
+/* Reduzir padding geral dentro da sidebar */
+section[data-testid="stSidebar"] .block-container,
+section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+    gap: 0px !important;
+}
+
+/* Checkboxes compactos */
+section[data-testid="stSidebar"] .stCheckbox {
+    margin-bottom: 0px !important;
+    padding: 0px !important;
+    min-height: 0 !important;
+}
 section[data-testid="stSidebar"] .stCheckbox label {
     font-size: 12px !important;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    padding: 1px 0 !important;
+    gap: 6px !important;
+    color: #c8ccd8 !important;
+}
+section[data-testid="stSidebar"] .stCheckbox label p {
+    font-size: 12px !important;
+    margin: 0 !important;
+    line-height: 1.4 !important;
+}
+
+/* Sliders compactos */
+section[data-testid="stSidebar"] .stSlider {
+    margin-bottom: 4px !important;
+    padding-bottom: 0 !important;
+}
+section[data-testid="stSidebar"] .stSlider label,
+section[data-testid="stSidebar"] .stSlider label p {
+    font-size: 11px !important;
+    margin-bottom: 0px !important;
     color: #6b7280 !important;
+}
+section[data-testid="stSidebar"] [data-testid="stSlider"] {
+    padding-top: 0 !important;
+    padding-bottom: 2px !important;
+}
+
+/* Selectbox e multiselect compactos */
+section[data-testid="stSidebar"] .stSelectbox,
+section[data-testid="stSidebar"] .stMultiSelect {
+    margin-bottom: 6px !important;
+}
+section[data-testid="stSidebar"] .stSelectbox label,
+section[data-testid="stSidebar"] .stMultiSelect label,
+section[data-testid="stSidebar"] .stSlider > label {
+    font-size: 11px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #6b7280 !important;
+    margin-bottom: 2px !important;
+}
+
+/* Radio compacto */
+section[data-testid="stSidebar"] .stRadio {
+    margin-bottom: 6px !important;
+}
+section[data-testid="stSidebar"] .stRadio label,
+section[data-testid="stSidebar"] .stRadio label p {
+    font-size: 12px !important;
+    color: #c8ccd8 !important;
+}
+section[data-testid="stSidebar"] .stRadio > div {
+    gap: 4px !important;
+}
+
+/* Markdown headers na sidebar */
+section[data-testid="stSidebar"] h2 {
+    font-size: 14px !important;
+    margin-bottom: 4px !important;
+}
+section[data-testid="stSidebar"] strong {
+    font-size: 11px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #6b7280 !important;
+}
+section[data-testid="stSidebar"] hr {
+    margin: 6px 0 !important;
+    border-color: #1e2130 !important;
 }
 
 /* Blocos de treino */
@@ -219,7 +294,7 @@ with st.sidebar:
     for p in (padroes_selecionados or []):
         default_n = EXERCICIOS_POR_PADRAO.get(p, 1)
         label_p = PADROES_LABELS.get(p, p)
-        epp_custom[p] = st.slider(label_p, 1, 3, default_n, key=f"epp_{p}")
+        epp_custom[p] = st.slider(label_p, 0, 3, default_n, key=f"epp_{p}")
 
     st.markdown("---")
 
@@ -280,9 +355,10 @@ if gerar:
         st.warning("Selecione ao menos um padrão de movimento.")
     else:
         with st.spinner("Gerando..."):
+            padroes_ativos = [p for p in padroes_selecionados if epp_custom.get(p, 1) > 0]
             st.session_state.sessao = gerar_sessao(
                 banco,
-                padroes_selecionados,
+                padroes_ativos,
                 exercicios_por_padrao=epp_custom,
                 equipamentos_bloqueados=eq_bloqueados,
                 max_complexidade=max_cx,
@@ -302,9 +378,10 @@ if st.session_state.sessao:
         st.caption(f"Padrões: {sessao.tipo}")
     with col_h2:
         if st.button("🔄 Regerar", help="Gera nova sessão com as mesmas configurações"):
+            padroes_ativos = [p for p in padroes_selecionados if epp_custom.get(p, 1) > 0]
             st.session_state.sessao = gerar_sessao(
                 banco,
-                padroes_selecionados,
+                padroes_ativos,
                 exercicios_por_padrao=epp_custom,
                 equipamentos_bloqueados=eq_bloqueados,
                 max_complexidade=max_cx,
@@ -315,121 +392,119 @@ if st.session_state.sessao:
 
     st.markdown("---")
 
-    # Exibir blocos — layout compacto
-    for bloco in sessao.blocos:
-        exercicios_bloco = [bloco.ex1]
-        if bloco.ex2:
-            exercicios_bloco.append(bloco.ex2)
+    # Inicializar estado de substituição inline
+    if "sub_alvo_inline" not in st.session_state:
+        st.session_state.sub_alvo_inline = None
+    if "candidatos" not in st.session_state:
+        st.session_state.candidatos = []
 
-        linhas = []
+    # Exibir blocos com reordenação e substituição inline
+    n_blocos = len(sessao.blocos)
+    labels = "ABCDEFGH"
+
+    for i, bloco in enumerate(sessao.blocos):
+        exercicios_bloco = [bloco.ex1] + ([bloco.ex2] if bloco.ex2 else [])
+
+        # Linha do bloco: label + botões de reordenação
+        col_lbl, col_up, col_dn = st.columns([8, 1, 1])
+        with col_lbl:
+            st.markdown(f"<span style='font-size:11px;font-weight:600;color:#9ca3af;letter-spacing:0.1em'>BLOCO {bloco.label}</span>", unsafe_allow_html=True)
+        with col_up:
+            if i > 0 and st.button("▲", key=f"up_{i}", help="Mover bloco acima"):
+                blocos = sessao.blocos[:]
+                blocos[i], blocos[i-1] = blocos[i-1], blocos[i]
+                for j, b in enumerate(blocos):
+                    b.label = labels[j] if j < len(labels) else str(j+1)
+                st.session_state.sessao.blocos = blocos
+                st.rerun()
+        with col_dn:
+            if i < n_blocos - 1 and st.button("▼", key=f"dn_{i}", help="Mover bloco abaixo"):
+                blocos = sessao.blocos[:]
+                blocos[i], blocos[i+1] = blocos[i+1], blocos[i]
+                for j, b in enumerate(blocos):
+                    b.label = labels[j] if j < len(labels) else str(j+1)
+                st.session_state.sessao.blocos = blocos
+                st.rerun()
+
+        # Exercícios do bloco
         for idx, ex in enumerate(exercicios_bloco, 1):
             eq = ex.eq_primario + (f" + {ex.eq_secundario}" if ex.eq_secundario else "")
             obs = f" · {ex.obs}" if ex.obs else ""
-            linhas.append(f"**{bloco.label}{idx}** &nbsp; {ex.nome} &nbsp; <span style='color:#9ca3af;font-size:12px'>`{ex.purpose}` · 🔧 {eq}{obs}</span>")
+            col_ex, col_btn = st.columns([10, 1])
+            with col_ex:
+                st.markdown(
+                    f"**{bloco.label}{idx}** &nbsp; {ex.nome} &nbsp;"
+                    f"<span style='color:#9ca3af;font-size:12px'>`{ex.purpose}` · 🔧 {eq}{obs}</span>",
+                    unsafe_allow_html=True,
+                )
+            with col_btn:
+                if st.button("↺", key=f"sub_{i}_{idx}", help=f"Substituir {ex.nome}"):
+                    st.session_state.sub_alvo_inline = ex.nome
+                    st.session_state.candidatos = []
 
-        st.markdown(
-            "<br>".join(linhas),
-            unsafe_allow_html=True,
-        )
-        st.markdown("<hr style='margin:6px 0; border-color:#f3f4f6'>", unsafe_allow_html=True)
+        st.markdown("<hr style='margin:4px 0 8px 0; border-color:#f3f4f6'>", unsafe_allow_html=True)
 
-    st.markdown("---")
+    # Painel de substituição inline — aparece quando um exercício é selecionado
+    if st.session_state.sub_alvo_inline:
+        alvo = st.session_state.sub_alvo_inline
+        st.markdown(f"#### Substituir: *{alvo}*")
 
-    # ---------------------------------------------------------------------------
-    # Painel de substituição
-    # ---------------------------------------------------------------------------
-
-    st.markdown("### 🔁 Substituir exercício")
-
-    col_s1, col_s2 = st.columns([2, 2])
-
-    with col_s1:
-        nomes_na_sessao = []
-        for bloco in sessao.blocos:
-            nomes_na_sessao.append(bloco.ex1.nome)
-            if bloco.ex2:
-                nomes_na_sessao.append(bloco.ex2.nome)
-
-        sub_alvo = st.selectbox(
-            "Exercício a substituir",
-            nomes_na_sessao,
-            key="select_sub_alvo",
-        )
-
-    with col_s2:
-        if st.button("🎲 Substituição aleatória", help="Substitui por exercício do mesmo padrão"):
-            st.session_state.sessao = substituir_exercicio(
-                sessao, sub_alvo, banco,
-                equipamentos_bloqueados=eq_bloqueados,
-                max_complexidade=max_cx,
-            )
-            st.rerun()
-
-    # Filtros para substituição manual
-    with st.expander("🔍 Filtrar candidatos manualmente"):
         fc1, fc2, fc3, fc4 = st.columns(4)
         with fc1:
-            f_padrao = st.selectbox("Padrão", ["(qualquer)"] + todos_padroes, key="f_padrao")
+            f_padrao = st.selectbox("Categoria", ["(qualquer)"] + sorted(PADROES_LABELS.keys()), key="f_padrao",
+                format_func=lambda x: PADROES_LABELS.get(x, x) if x != "(qualquer)" else "Qualquer")
         with fc2:
-            f_regiao = st.selectbox("Região", ["(qualquer)", "upper", "lower", "core"], key="f_regiao")
-        with fc3:
             f_purpose = st.selectbox("Purpose", ["(qualquer)", "compound", "isolation", "stability", "explosive"], key="f_purpose")
+        with fc3:
+            f_uni = st.selectbox("Lateralidade", ["(qualquer)", "bilateral", "unilateral"], key="f_uni")
         with fc4:
-            f_uni = st.selectbox("Lateral.", ["(qualquer)", "bilateral", "unilateral"], key="f_uni")
+            f_ignorar_sim = st.checkbox("Ignorar similaridade", value=True, key="f_ignorar_sim")
 
-        fc5, fc6 = st.columns(2)
-        with fc5:
-            f_max_fd = st.slider("Fadiga máx.", 1, 5, 5, key="f_fd")
-        with fc6:
-            f_max_cx = st.slider("Complexidade máx.", 1, 5, max_cx, key="f_cx")
-
-        f_ignorar_sim = st.checkbox(
-            "Mostrar mesmo que similaridade já usada na sessão",
-            value=True,
-            key="f_ignorar_sim",
-        )
-
-        if st.button("🔍 Buscar candidatos"):
-            candidatos = buscar_substitutos(
-                sessao,
-                nome_atual=sub_alvo,
-                banco=banco,
-                padrao=None if f_padrao == "(qualquer)" else f_padrao,
-                regiao=None if f_regiao == "(qualquer)" else f_regiao,
-                purpose=None if f_purpose == "(qualquer)" else f_purpose,
-                unilateral=None if f_uni == "(qualquer)" else f_uni,
-                max_fadiga=f_max_fd,
-                max_complexidade=f_max_cx,
-                equipamentos_bloqueados=eq_bloqueados,
-                ignorar_similaridade_usada=f_ignorar_sim,
-            )
-            st.session_state.candidatos = candidatos
-
-        if "candidatos" in st.session_state and st.session_state.candidatos:
-            candidatos = st.session_state.candidatos
-            st.caption(f"{len(candidatos)} candidato(s) encontrado(s)")
-
-            nomes_cand = [
-                f"{e.nome}  [{e.purpose} | fd:{e.fadiga} | cx:{e.complexidade} | {e.eq_primario}]"
-                for e in candidatos
-            ]
-            escolha_str = st.radio(
-                "Escolha o substituto",
-                nomes_cand,
-                key="radio_cand",
-                label_visibility="collapsed",
-            )
-            escolha_nome = escolha_str.split("  [")[0]
-
-            if st.button("✅ Aplicar substituição"):
-                st.session_state.sessao = substituir_exercicio_por(
-                    sessao, sub_alvo, escolha_nome, banco
+        col_b1, col_b2, col_b3 = st.columns([2, 2, 2])
+        with col_b1:
+            if st.button("🔍 Buscar substitutos", use_container_width=True):
+                st.session_state.candidatos = buscar_substitutos(
+                    sessao, nome_atual=alvo, banco=banco,
+                    padrao=None if f_padrao == "(qualquer)" else f_padrao,
+                    purpose=None if f_purpose == "(qualquer)" else f_purpose,
+                    unilateral=None if f_uni == "(qualquer)" else f_uni,
+                    equipamentos_bloqueados=eq_bloqueados,
+                    max_complexidade=max_cx,
+                    ignorar_similaridade_usada=f_ignorar_sim,
                 )
+        with col_b2:
+            if st.button("🎲 Aleatório", use_container_width=True):
+                st.session_state.sessao = substituir_exercicio(
+                    sessao, alvo, banco,
+                    equipamentos_bloqueados=eq_bloqueados,
+                    max_complexidade=max_cx,
+                )
+                st.session_state.sub_alvo_inline = None
+                st.session_state.candidatos = []
+                st.rerun()
+        with col_b3:
+            if st.button("✕ Cancelar", use_container_width=True):
+                st.session_state.sub_alvo_inline = None
                 st.session_state.candidatos = []
                 st.rerun()
 
-        elif "candidatos" in st.session_state and not st.session_state.candidatos:
-            st.warning("Nenhum candidato encontrado com esses filtros.")
+        if st.session_state.candidatos:
+            st.caption(f"{len(st.session_state.candidatos)} candidato(s)")
+            nomes_cand = [
+                f"{e.nome}  [{e.purpose} · 🔧 {e.eq_primario}]"
+                for e in st.session_state.candidatos
+            ]
+            escolha_str = st.radio("", nomes_cand, key="radio_cand", label_visibility="collapsed")
+            escolha_nome = escolha_str.split("  [")[0]
+            if st.button("✅ Aplicar", type="primary"):
+                st.session_state.sessao = substituir_exercicio_por(sessao, alvo, escolha_nome, banco)
+                st.session_state.sub_alvo_inline = None
+                st.session_state.candidatos = []
+                st.rerun()
+        elif "candidatos" in st.session_state and st.session_state.get("candidatos") == []:
+            pass
+        else:
+            st.warning("Nenhum candidato encontrado.")
 
 else:
     # Estado inicial — nenhuma sessão gerada ainda
