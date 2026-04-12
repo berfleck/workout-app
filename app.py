@@ -190,21 +190,20 @@ with st.sidebar:
         padroes_selecionados = TEMPLATES[template_nome]
         st.caption(f"Padrões: {', '.join(padroes_selecionados)}")
     else:
-        # Ordem e labels amigáveis para os checkboxes
         PADROES_LABELS = {
-            "horizontal_push": "Horizontal Push (supino, flexão...)",
-            "horizontal_pull": "Horizontal Pull (remada...)",
-            "vertical_push":   "Vertical Push (desenvolvimento, elevação...)",
-            "vertical_pull":   "Vertical Pull (puxada, barra fixa...)",
-            "squat":           "Squat (agachamento, leg press...)",
-            "hinge":           "Hinge (terra, hip thrust, hiperextensão...)",
-            "abduction":       "Abduction (abdução de quadril...)",
-            "adduction":       "Adduction (adução, copenhagen...)",
-            "core":            "Core (prancha, crunch, roda...)",
-            "biceps":          "Bíceps (rosca...)",
+            "horizontal_push": "Horizontal Push",
+            "horizontal_pull": "Horizontal Pull",
+            "vertical_push":   "Vertical Push",
+            "vertical_pull":   "Vertical Pull",
+            "squat":           "Squat",
+            "hinge":           "Hinge",
+            "abduction":       "Abdução",
+            "adduction":       "Adução",
+            "core":            "Core",
+            "biceps":          "Bíceps",
             "triceps":         "Tríceps",
-            "flexao_plantar":     "Panturrilha (elevação, flexão plantar...)",
-            "cardio":          "Cardio (air bike...)",
+            "flexao_plantar":  "Flexão Plantar",
+            "cardio":          "Cardio",
         }
         padroes_selecionados = []
         for padrao, label in PADROES_LABELS.items():
