@@ -6,6 +6,7 @@ Uso:
     python gerador_treino.py
 """
 
+import math
 import pandas as pd
 import random
 from dataclasses import dataclass, field
@@ -18,14 +19,17 @@ from typing import Optional
 XLSX_PATH = "banco_exercicios.xlsx"
 
 TEMPLATES = {
-    "Push + Hip":     ["horizontal_push", "vertical_push", "hinge", "core"],
-    "Pull + Knee":    ["horizontal_pull", "vertical_pull", "squat", "core"],
-    "Full Body":      ["horizontal_push", "horizontal_pull", "squat", "hinge", "core"],
-    "Push + Bíceps":  ["horizontal_push", "vertical_push", "vertical_pull", "core"],
-    "Pull + Core":    ["horizontal_pull", "vertical_pull", "core"],
-    "Upper Body":     ["horizontal_push", "vertical_push", "horizontal_pull", "vertical_pull"],
-    "Lower Body":     ["squat", "hinge", "core"],
-    "Cardio + Força": ["cardio", "squat", "hinge", "horizontal_push"],
+    "Push + Hip":       ["horizontal_push", "vertical_push", "hinge", "core"],
+    "Pull + Knee":      ["horizontal_pull", "vertical_pull", "squat", "core"],
+    "Full Body":        ["horizontal_push", "horizontal_pull", "squat", "hinge", "core"],
+    "Push + Bíceps":    ["horizontal_push", "vertical_push", "biceps", "core"],
+    "Pull + Tríceps":   ["horizontal_pull", "vertical_pull", "triceps", "core"],
+    "Pull + Core":      ["horizontal_pull", "vertical_pull", "core"],
+    "Upper Body":       ["horizontal_push", "vertical_push", "horizontal_pull", "vertical_pull"],
+    "Lower Body":       ["squat", "hinge", "abduction", "core"],
+    "Braços":           ["biceps", "triceps", "core"],
+    "Cardio + Força":   ["cardio", "squat", "hinge", "horizontal_push"],
+    "Glúteos + Quadril":["hinge", "abduction", "adduction", "core"],
 }
 
 EXERCICIOS_POR_PADRAO = {
@@ -37,6 +41,11 @@ EXERCICIOS_POR_PADRAO = {
     "hinge":           2,
     "core":            2,
     "cardio":          1,
+    "biceps":          2,
+    "triceps":         2,
+    "flexao_plantar":     2,
+    "abduction":       2,
+    "adduction":       2,
 }
 
 # Não parear dois exercícios com fadiga >= este valor no mesmo bloco
@@ -86,7 +95,6 @@ def _str(val) -> str:
     if val is None:
         return ""
     try:
-        import math
         if math.isnan(float(val)):
             return ""
     except (TypeError, ValueError):
@@ -108,6 +116,8 @@ def carregar_banco(path: str) -> list[Exercicio]:
     exercicios = []
     for _, row in df.iterrows():
         nome = _str(row.get("nome"))
+        if not nome:
+            continue
         eq_pri = _str(row.get("eq_primario")) or _EQ_FIXES.get(nome, "")
         exercicios.append(Exercicio(
             nome=nome,
@@ -118,8 +128,8 @@ def carregar_banco(path: str) -> list[Exercicio]:
             padrao=_str(row.get("padrao")),
             purpose=_str(row.get("purpose")),
             unilateral=_str(row.get("unilateral")),
-            complexidade=int(row.get("complexidade") or 1),
-            fadiga=int(row.get("fadiga") or 1),
+            complexidade=int(row.get("complexidade") if row.get("complexidade") and not (isinstance(row.get("complexidade"), float) and math.isnan(row.get("complexidade"))) else 1),
+            fadiga=int(row.get("fadiga") if row.get("fadiga") and not (isinstance(row.get("fadiga"), float) and math.isnan(row.get("fadiga"))) else 1),
             circuito=_str(row.get("circuito")) or "não",
             similaridade=_str(row.get("similaridade")),
             musculo_primario=_str(row.get("musculo_primario")),

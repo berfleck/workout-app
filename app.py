@@ -190,12 +190,28 @@ with st.sidebar:
         padroes_selecionados = TEMPLATES[template_nome]
         st.caption(f"Padrões: {', '.join(padroes_selecionados)}")
     else:
-        default_padroes = [p for p in ["horizontal_push", "hinge", "vertical_pull"] if p in todos_padroes]
-        padroes_selecionados = st.multiselect(
-            "Padrões de movimento",
-            todos_padroes,
-            default=default_padroes,
-        )
+        # Ordem e labels amigáveis para os checkboxes
+        PADROES_LABELS = {
+            "horizontal_push": "Horizontal Push (supino, flexão...)",
+            "horizontal_pull": "Horizontal Pull (remada...)",
+            "vertical_push":   "Vertical Push (desenvolvimento, elevação...)",
+            "vertical_pull":   "Vertical Pull (puxada, barra fixa...)",
+            "squat":           "Squat (agachamento, leg press...)",
+            "hinge":           "Hinge (terra, hip thrust, hiperextensão...)",
+            "abduction":       "Abduction (abdução de quadril...)",
+            "adduction":       "Adduction (adução, copenhagen...)",
+            "core":            "Core (prancha, crunch, roda...)",
+            "biceps":          "Bíceps (rosca...)",
+            "triceps":         "Tríceps",
+            "flexao_plantar":     "Panturrilha (elevação, flexão plantar...)",
+            "cardio":          "Cardio (air bike...)",
+        }
+        padroes_selecionados = []
+        for padrao, label in PADROES_LABELS.items():
+            if padrao in todos_padroes:
+                checked = padrao in ["horizontal_push", "hinge", "vertical_pull"]
+                if st.checkbox(label, value=checked, key=f"chk_{padrao}"):
+                    padroes_selecionados.append(padrao)
 
     st.markdown("---")
 
