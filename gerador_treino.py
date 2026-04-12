@@ -19,17 +19,19 @@ from typing import Optional
 XLSX_PATH = "banco_exercicios.xlsx"
 
 TEMPLATES = {
-    "Push + Hip":       ["horizontal_push", "vertical_push", "hinge", "core"],
-    "Pull + Knee":      ["horizontal_pull", "vertical_pull", "squat", "core"],
-    "Full Body":        ["horizontal_push", "horizontal_pull", "squat", "hinge", "core"],
-    "Push + Bíceps":    ["horizontal_push", "vertical_push", "biceps", "core"],
-    "Pull + Tríceps":   ["horizontal_pull", "vertical_pull", "triceps", "core"],
-    "Pull + Core":      ["horizontal_pull", "vertical_pull", "core"],
-    "Upper Body":       ["horizontal_push", "vertical_push", "horizontal_pull", "vertical_pull"],
-    "Lower Body":       ["squat", "hinge", "abduction", "core"],
-    "Braços":           ["biceps", "triceps", "core"],
-    "Cardio + Força":   ["cardio", "squat", "hinge", "horizontal_push"],
-    "Glúteos + Quadril":["hinge", "abduction", "adduction", "core"],
+    "Push + Hip":          ["horizontal_push", "vertical_push", "hinge", "core"],
+    "Pull + Knee":         ["horizontal_pull", "vertical_pull", "squat", "core"],
+    "Full Body":           ["horizontal_push", "horizontal_pull", "vertical_push", "vertical_pull", "squat", "hinge", "abduction", "adduction", "biceps", "triceps", "flexao_plantar", "core"],
+    "Full Body + Braços":  ["horizontal_push", "horizontal_pull", "vertical_push", "vertical_pull", "squat", "hinge", "biceps", "triceps", "core"],
+    "Push + Bíceps":       ["horizontal_push", "vertical_push", "biceps", "core"],
+    "Pull + Tríceps":      ["horizontal_pull", "vertical_pull", "triceps", "core"],
+    "Pull + Core":         ["horizontal_pull", "vertical_pull", "core"],
+    "Upper Body":          ["horizontal_push", "vertical_push", "horizontal_pull", "vertical_pull", "biceps", "triceps"],
+    "Lower Body":          ["squat", "hinge", "abduction", "adduction", "core"],
+    "Glúteos + Quadril":   ["hinge", "abduction", "adduction", "core"],
+    "Braços":              ["biceps", "triceps", "core"],
+    "Panturrilha + Braços":["flexao_plantar", "biceps", "triceps"],
+    "Cardio + Força":      ["cardio", "squat", "hinge", "horizontal_push"],
 }
 
 EXERCICIOS_POR_PADRAO = {
@@ -50,6 +52,9 @@ EXERCICIOS_POR_PADRAO = {
 
 # Não parear dois exercícios com fadiga >= este valor no mesmo bloco
 FADIGA_MAX_PAR = 4
+
+# Tamanho padrão dos blocos (super séries)
+TAMANHO_BLOCO_PADRAO = 2
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +84,7 @@ class SuperSerie:
     label: str
     ex1: Exercicio
     ex2: Optional[Exercicio]
+    ex3: Optional[Exercicio] = None
 
 
 @dataclass
@@ -231,51 +237,66 @@ def selecionar_sem_repeticao_similaridade(
 # Pareamento em super séries
 # ---------------------------------------------------------------------------
 
-def pode_parear(ex1: Exercicio, ex2: Exercicio) -> bool:
-    if ex1.fadiga >= FADIGA_MAX_PAR and ex2.fadiga >= FADIGA_MAX_PAR:
+def pode_adicionar_ao_bloco(bloco_atual: list, candidato: Exercicio, tamanho_bloco: int) -> bool:
+    """Verifica se o candidato pode entrar no bloco respeitando a regra de fadiga."""
+    max_alta_fadiga = 1 if tamanho_bloco <= 2 else 2
+    alta_fadiga_no_bloco = sum(1 for e in bloco_atual if e.fadiga >= FADIGA_MAX_PAR)
+    if candidato.fadiga >= FADIGA_MAX_PAR and alta_fadiga_no_bloco >= max_alta_fadiga:
         return False
     return True
 
 
-def montar_pares(exercicios: list[Exercicio]) -> list[tuple]:
+def montar_blocos(exercicios: list[Exercicio], tamanho: int = 2) -> list[tuple]:
     """
-    Pareia em super séries priorizando regiões diferentes.
-    Retorna lista de (ex1, ex2) ou (ex1, None) se sobrar ímpar.
+    Monta blocos de tamanho configurável (1, 2 ou 3).
+    Prioriza regiões diferentes dentro do bloco.
+    O último bloco pode ter menos exercícios se não houver suficientes.
+    Retorna lista de tuplas de tamanho variável.
     """
     if not exercicios:
         return []
 
     usados = [False] * len(exercicios)
-    pares = []
+    blocos = []
 
-    for i in range(len(exercicios)):
+    i = 0
+    while i < len(exercicios):
         if usados[i]:
+            i += 1
             continue
-        pareado = False
-        # Prioridade 1: região diferente
-        for j in range(i + 1, len(exercicios)):
-            if usados[j]:
-                continue
-            if exercicios[i].regiao != exercicios[j].regiao and pode_parear(exercicios[i], exercicios[j]):
-                pares.append((exercicios[i], exercicios[j]))
-                usados[i] = usados[j] = True
-                pareado = True
-                break
-        # Prioridade 2: qualquer parceiro válido
-        if not pareado:
-            for j in range(i + 1, len(exercicios)):
+
+        bloco_atual = [exercicios[i]]
+        usados[i] = True
+        regioes_no_bloco = {exercicios[i].regiao}
+
+        # Preencher o bloco até o tamanho desejado
+        while len(bloco_atual) < tamanho:
+            melhor = None
+            # Prioridade 1: região diferente
+            for j in range(len(exercicios)):
                 if usados[j]:
                     continue
-                if pode_parear(exercicios[i], exercicios[j]):
-                    pares.append((exercicios[i], exercicios[j]))
-                    usados[i] = usados[j] = True
-                    pareado = True
+                if exercicios[j].regiao not in regioes_no_bloco and pode_adicionar_ao_bloco(bloco_atual, exercicios[j], tamanho):
+                    melhor = j
                     break
-        if not pareado:
-            pares.append((exercicios[i], None))
-            usados[i] = True
+            # Prioridade 2: qualquer válido
+            if melhor is None:
+                for j in range(len(exercicios)):
+                    if usados[j]:
+                        continue
+                    if pode_adicionar_ao_bloco(bloco_atual, exercicios[j], tamanho):
+                        melhor = j
+                        break
+            if melhor is None:
+                break
+            bloco_atual.append(exercicios[melhor])
+            regioes_no_bloco.add(exercicios[melhor].regiao)
+            usados[melhor] = True
 
-    return pares
+        blocos.append(tuple(bloco_atual))
+        i += 1
+
+    return blocos
 
 
 # ---------------------------------------------------------------------------
@@ -390,6 +411,7 @@ def gerar_sessao(
     max_complexidade: int = 5,
     variacao_pais_usados: Optional[set] = None,
     exercicios_travados: Optional[list[Exercicio]] = None,
+    tamanho_bloco: int = 2,
 ) -> Sessao:
     epp      = exercicios_por_padrao or EXERCICIOS_POR_PADRAO
     eq_bloq  = equipamentos_bloqueados or []
@@ -423,15 +445,18 @@ def gerar_sessao(
     # Ordenar: compostos primeiro, depois o resto
     todos_selecionados = ordenar_compostos_primeiro(todos_selecionados)
 
-    # Parear em super séries
-    pares = montar_pares(todos_selecionados)
+    # Montar blocos do tamanho configurado
+    grupos = montar_blocos(todos_selecionados, tamanho=tamanho_bloco)
 
-    # Montar blocos
-    labels = "ABCDEFGH"
+    # Criar SuperSeries
+    labels = "ABCDEFGHIJKLMNOP"
     blocos = []
-    for i, (ex1, ex2) in enumerate(pares):
+    for i, grupo in enumerate(grupos):
         label = labels[i] if i < len(labels) else str(i + 1)
-        blocos.append(SuperSerie(label=label, ex1=ex1, ex2=ex2))
+        ex1 = grupo[0]
+        ex2 = grupo[1] if len(grupo) > 1 else None
+        ex3 = grupo[2] if len(grupo) > 2 else None
+        blocos.append(SuperSerie(label=label, ex1=ex1, ex2=ex2, ex3=ex3))
 
     tipo = " + ".join(padroes)
     return Sessao(tipo=tipo, blocos=blocos)
@@ -447,17 +472,11 @@ def imprimir_sessao(sessao: Sessao):
     print("=" * 60)
     for bloco in sessao.blocos:
         print(f"\n  Bloco {bloco.label}")
-        ex = bloco.ex1
-        eq = ex.eq_primario + (f" + {ex.eq_secundario}" if ex.eq_secundario else "")
-        print(f"  {bloco.label}1 — {ex.nome}  [{ex.purpose} | fd:{ex.fadiga} | cx:{ex.complexidade}]")
-        print(f"       Equip: {eq}" + (f"  |  {ex.obs}" if ex.obs else ""))
-        if bloco.ex2:
-            ex = bloco.ex2
+        exercicios = [e for e in [bloco.ex1, bloco.ex2, bloco.ex3] if e]
+        for i, ex in enumerate(exercicios, 1):
             eq = ex.eq_primario + (f" + {ex.eq_secundario}" if ex.eq_secundario else "")
-            print(f"  {bloco.label}2 — {ex.nome}  [{ex.purpose} | fd:{ex.fadiga} | cx:{ex.complexidade}]")
+            print(f"  {bloco.label}{i} — {ex.nome}  [{ex.purpose} | fd:{ex.fadiga} | cx:{ex.complexidade}]")
             print(f"       Equip: {eq}" + (f"  |  {ex.obs}" if ex.obs else ""))
-        else:
-            print(f"  {bloco.label}2 — (exercício isolado)")
     print()
 
 
