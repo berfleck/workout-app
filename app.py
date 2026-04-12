@@ -207,18 +207,19 @@ section[data-testid="stSidebar"] hr {
 
 /* Botão gerar */
 div[data-testid="stButton"] > button[kind="primary"] {
-    background: #111827 !important;
+    background: #e85d04 !important;
     color: white !important;
     border: none !important;
     border-radius: 8px !important;
     font-family: 'DM Sans', sans-serif !important;
-    font-weight: 500 !important;
+    font-weight: 600 !important;
     font-size: 15px !important;
     padding: 10px 24px !important;
     width: 100%;
+    letter-spacing: 0.02em;
 }
 div[data-testid="stButton"] > button[kind="primary"]:hover {
-    background: #374151 !important;
+    background: #c44d03 !important;
 }
 
 /* Separador */
@@ -311,11 +312,7 @@ with st.sidebar:
 
     # Restrições
     st.markdown("**Restrições**")
-    eq_bloqueados = st.multiselect(
-        "Equipamentos indisponíveis",
-        todos_equipamentos,
-    )
-
+    eq_bloqueados = []
     max_cx = st.slider("Complexidade máxima", 1, 5, 5)
 
     st.markdown("---")
@@ -335,14 +332,15 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # Exercícios travados
-    st.markdown("**Travar exercícios**")
-    nomes_todos = sorted([e.nome for e in banco])
-    nomes_travados = st.multiselect(
-        "Exercícios obrigatórios",
-        nomes_todos,
-    )
+    # Exercícios travados — minimizado em expander
+    with st.expander("Exercícios obrigatórios"):
+        nomes_todos = sorted([e.nome for e in banco])
+        t1 = st.selectbox("Obrigatório 1", ["(nenhum)"] + nomes_todos, key="trav1")
+        t2 = st.selectbox("Obrigatório 2", ["(nenhum)"] + nomes_todos, key="trav2")
+        nomes_travados = [n for n in [t1, t2] if n != "(nenhum)"]
     exercicios_travados = [e for e in banco if e.nome in nomes_travados]
+
+    st.markdown("---")
 
     # Botão gerar nativo na sidebar (para capturar o clique)
     gerar = st.button("▶ Gerar treino", type="primary", use_container_width=True)
@@ -390,11 +388,16 @@ if gerar:
 if st.session_state.sessao:
     sessao: Sessao = st.session_state.sessao
 
-    # Cabeçalho da sessão
+    # Cabeçalho da sessão — categorias em destaque
     col_h1, col_h2 = st.columns([3, 1])
     with col_h1:
-        st.markdown(f"### 📋 Sessão gerada")
-        st.caption(f"Padrões: {sessao.tipo}")
+        labels_ativos = [PADROES_LABELS.get(p, p) for p in padroes_selecionados if epp_custom.get(p, 1) > 0]
+        cats_str = " · ".join(labels_ativos) if labels_ativos else sessao.tipo
+        st.markdown(
+            f"<p style='font-size:11px;color:#9ca3af;margin:0 0 2px 0;text-transform:uppercase;letter-spacing:0.08em'>Sessão gerada</p>"
+            f"<p style='font-size:20px;font-weight:600;color:#111827;margin:0;line-height:1.3'>{cats_str}</p>",
+            unsafe_allow_html=True,
+        )
     with col_h2:
         if st.button("🔄 Regerar", help="Gera nova sessão com as mesmas configurações"):
             padroes_ativos = [p for p in padroes_selecionados if epp_custom.get(p, 1) > 0]
