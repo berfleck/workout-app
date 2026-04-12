@@ -223,8 +223,19 @@ div[data-testid="stButton"] > button[kind="primary"]:hover {
 
 /* Separador */
 .sep { border: none; border-top: 1px solid #f3f4f6; margin: 16px 0; }
+
+/* Topo da área principal sticky — fixa os primeiros elementos */
+[data-testid="stAppViewContainer"] > section.main > div.block-container > div:first-child {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--background-color, white);
+    padding-bottom: 8px;
+}
 </style>
 """, unsafe_allow_html=True)
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -309,6 +320,21 @@ with st.sidebar:
 
     st.markdown("---")
 
+    # Tamanho do bloco
+    st.markdown("**Tamanho do bloco**")
+    tamanho_bloco = st.radio(
+        "Exercícios por bloco",
+        [1, 2, 3],
+        index=1,
+        horizontal=True,
+        label_visibility="collapsed",
+        key="tamanho_bloco",
+    )
+    if tamanho_bloco == 3:
+        st.caption("Trio: regra de fadiga relaxada")
+
+    st.markdown("---")
+
     # Exercícios travados
     st.markdown("**Travar exercícios**")
     nomes_todos = sorted([e.nome for e in banco])
@@ -323,25 +349,23 @@ with st.sidebar:
 # Área principal
 # ---------------------------------------------------------------------------
 
-st.markdown("""
-<div class="main-header">
+# Header + botão gerar num único bloco sticky
+col_titulo, col_gerar = st.columns([3, 2])
+with col_titulo:
+    st.markdown("""
+<div style="padding:4px 0 0 0">
     <div class="main-title">Gerador de Treinos</div>
     <div class="main-sub">Personal Training · Sessões personalizadas</div>
-</div>
-""", unsafe_allow_html=True)
-
-# Botão gerar — fixo no topo da área principal
-col_gerar, col_info = st.columns([2, 3])
+</div>""", unsafe_allow_html=True)
 with col_gerar:
     gerar = st.button("▶ Gerar treino", type="primary", use_container_width=True)
-with col_info:
     if padroes_selecionados:
         labels_sel = [PADROES_LABELS.get(p, p) for p in padroes_selecionados]
-        st.caption("Categorias: " + " · ".join(labels_sel))
+        st.caption(" · ".join(labels_sel))
     else:
-        st.caption("Selecione ao menos uma categoria no painel.")
+        st.caption("Selecione categorias no painel.")
 
-st.markdown("---")
+st.markdown("<hr style='margin:6px 0 12px 0;border-color:#e5e7eb'>", unsafe_allow_html=True)
 
 # Inicializar estado
 if "sessao" not in st.session_state:
@@ -363,6 +387,7 @@ if gerar:
                 equipamentos_bloqueados=eq_bloqueados,
                 max_complexidade=max_cx,
                 exercicios_travados=exercicios_travados,
+                tamanho_bloco=tamanho_bloco,
             )
         st.session_state.sub_alvo = None
         st.session_state.sub_filtros = {}
@@ -398,58 +423,82 @@ if st.session_state.sessao:
     if "candidatos" not in st.session_state:
         st.session_state.candidatos = []
 
+    # CSS para compactar botões inline
+    st.markdown("""
+    <style>
+    .btn-tiny button {
+        padding: 0px 4px !important;
+        font-size: 11px !important;
+        height: 22px !important;
+        min-height: 0 !important;
+        line-height: 1 !important;
+    }
+    div[data-testid="stVerticalBlock"] > div { gap: 0rem !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
     # Exibir blocos com reordenação e substituição inline
     n_blocos = len(sessao.blocos)
-    labels = "ABCDEFGH"
+    labels = "ABCDEFGHIJKLMNOP"
 
     for i, bloco in enumerate(sessao.blocos):
-        exercicios_bloco = [bloco.ex1] + ([bloco.ex2] if bloco.ex2 else [])
+        exercicios_bloco = [e for e in [bloco.ex1, bloco.ex2, bloco.ex3] if e]
 
-        # Linha do bloco: label + botões de reordenação
-        col_lbl, col_up, col_dn = st.columns([8, 1, 1])
+        # Linha de cabeçalho do bloco: label + ▲▼ em HTML compacto
+        ativo = st.session_state.sub_alvo_inline
+        up_key = f"up_{i}"
+        dn_key = f"dn_{i}"
+
+        col_lbl, col_up, col_dn = st.columns([14, 1, 1])
         with col_lbl:
-            st.markdown(f"<span style='font-size:11px;font-weight:600;color:#9ca3af;letter-spacing:0.1em'>BLOCO {bloco.label}</span>", unsafe_allow_html=True)
+            st.markdown(
+                f"<p style='font-size:10px;font-weight:700;color:#9ca3af;letter-spacing:0.1em;margin:4px 0 0 0'>BLOCO {bloco.label}</p>",
+                unsafe_allow_html=True,
+            )
         with col_up:
-            if i > 0 and st.button("▲", key=f"up_{i}", help="Mover bloco acima"):
-                blocos = sessao.blocos[:]
-                blocos[i], blocos[i-1] = blocos[i-1], blocos[i]
-                for j, b in enumerate(blocos):
-                    b.label = labels[j] if j < len(labels) else str(j+1)
-                st.session_state.sessao.blocos = blocos
-                st.rerun()
+            if i > 0:
+                if st.button("↑", key=up_key, help="Subir bloco"):
+                    blocos = sessao.blocos[:]
+                    blocos[i], blocos[i-1] = blocos[i-1], blocos[i]
+                    for j, b in enumerate(blocos):
+                        b.label = labels[j]
+                    st.session_state.sessao.blocos = blocos
+                    st.rerun()
         with col_dn:
-            if i < n_blocos - 1 and st.button("▼", key=f"dn_{i}", help="Mover bloco abaixo"):
-                blocos = sessao.blocos[:]
-                blocos[i], blocos[i+1] = blocos[i+1], blocos[i]
-                for j, b in enumerate(blocos):
-                    b.label = labels[j] if j < len(labels) else str(j+1)
-                st.session_state.sessao.blocos = blocos
-                st.rerun()
+            if i < n_blocos - 1:
+                if st.button("↓", key=dn_key, help="Descer bloco"):
+                    blocos = sessao.blocos[:]
+                    blocos[i], blocos[i+1] = blocos[i+1], blocos[i]
+                    for j, b in enumerate(blocos):
+                        b.label = labels[j]
+                    st.session_state.sessao.blocos = blocos
+                    st.rerun()
 
-        # Exercícios do bloco
+        # Exercícios — uma linha por exercício, botão ↺ bem pequeno
         for idx, ex in enumerate(exercicios_bloco, 1):
             eq = ex.eq_primario + (f" + {ex.eq_secundario}" if ex.eq_secundario else "")
             obs = f" · {ex.obs}" if ex.obs else ""
-            col_ex, col_btn = st.columns([10, 1])
+            col_ex, col_sub = st.columns([16, 1])
             with col_ex:
                 st.markdown(
-                    f"**{bloco.label}{idx}** &nbsp; {ex.nome} &nbsp;"
-                    f"<span style='color:#9ca3af;font-size:12px'>`{ex.purpose}` · 🔧 {eq}{obs}</span>",
+                    f"<p style='margin:0;font-size:13px;line-height:1.6'>"
+                    f"<b>{bloco.label}{idx}</b>&nbsp; {ex.nome} "
+                    f"<span style='color:#9ca3af;font-size:11px'>{ex.purpose} · 🔧 {eq}{obs}</span></p>",
                     unsafe_allow_html=True,
                 )
-            with col_btn:
-                if st.button("↺", key=f"sub_{i}_{idx}", help=f"Substituir {ex.nome}"):
+            with col_sub:
+                if st.button("↺", key=f"sub_{i}_{idx}", help=f"Substituir"):
                     st.session_state.sub_alvo_inline = ex.nome
                     st.session_state.candidatos = []
 
-        st.markdown("<hr style='margin:4px 0 8px 0; border-color:#f3f4f6'>", unsafe_allow_html=True)
+        st.markdown("<hr style='margin:2px 0 4px 0;border-color:#f3f4f6'>", unsafe_allow_html=True)
 
-    # Painel de substituição inline — aparece quando um exercício é selecionado
+    # Painel de substituição inline
     if st.session_state.sub_alvo_inline:
         alvo = st.session_state.sub_alvo_inline
-        st.markdown(f"#### Substituir: *{alvo}*")
+        st.markdown(f"<p style='font-size:13px;margin:4px 0'><b>Substituir:</b> {alvo}</p>", unsafe_allow_html=True)
 
-        fc1, fc2, fc3, fc4 = st.columns(4)
+        fc1, fc2, fc3 = st.columns(3)
         with fc1:
             f_padrao = st.selectbox("Categoria", ["(qualquer)"] + sorted(PADROES_LABELS.keys()), key="f_padrao",
                 format_func=lambda x: PADROES_LABELS.get(x, x) if x != "(qualquer)" else "Qualquer")
@@ -457,12 +506,12 @@ if st.session_state.sessao:
             f_purpose = st.selectbox("Purpose", ["(qualquer)", "compound", "isolation", "stability", "explosive"], key="f_purpose")
         with fc3:
             f_uni = st.selectbox("Lateralidade", ["(qualquer)", "bilateral", "unilateral"], key="f_uni")
-        with fc4:
-            f_ignorar_sim = st.checkbox("Ignorar similaridade", value=True, key="f_ignorar_sim")
 
-        col_b1, col_b2, col_b3 = st.columns([2, 2, 2])
+        f_ignorar_sim = st.checkbox("Ignorar similaridade já usada", value=True, key="f_ignorar_sim")
+
+        col_b1, col_b2, col_b3 = st.columns(3)
         with col_b1:
-            if st.button("🔍 Buscar substitutos", use_container_width=True):
+            if st.button("🔍 Buscar", use_container_width=True):
                 st.session_state.candidatos = buscar_substitutos(
                     sessao, nome_atual=alvo, banco=banco,
                     padrao=None if f_padrao == "(qualquer)" else f_padrao,
@@ -491,7 +540,7 @@ if st.session_state.sessao:
         if st.session_state.candidatos:
             st.caption(f"{len(st.session_state.candidatos)} candidato(s)")
             nomes_cand = [
-                f"{e.nome}  [{e.purpose} · 🔧 {e.eq_primario}]"
+                f"{e.nome}  [{e.purpose} · {e.eq_primario}]"
                 for e in st.session_state.candidatos
             ]
             escolha_str = st.radio("", nomes_cand, key="radio_cand", label_visibility="collapsed")
@@ -501,10 +550,8 @@ if st.session_state.sessao:
                 st.session_state.sub_alvo_inline = None
                 st.session_state.candidatos = []
                 st.rerun()
-        elif "candidatos" in st.session_state and st.session_state.get("candidatos") == []:
+        elif st.session_state.candidatos == [] and "radio_cand" not in st.session_state:
             pass
-        else:
-            st.warning("Nenhum candidato encontrado.")
 
 else:
     # Estado inicial — nenhuma sessão gerada ainda
