@@ -1,11 +1,14 @@
 import streamlit as st
 import random
+import json
+from pathlib import Path
 from gerador_treino import (
     carregar_banco, gerar_sessao, substituir_exercicio,
     buscar_substitutos, substituir_exercicio_por,
     listar_candidatos, TEMPLATES, EXERCICIOS_POR_PADRAO,
     Exercicio, Sessao, SuperSerie,
 )
+from gerar_imagem import gerar_png
 
 # ---------------------------------------------------------------------------
 # Config e estilo
@@ -248,7 +251,17 @@ def get_banco():
     return carregar_banco("banco_exercicios.xlsx")
 
 
+def carregar_alunos():
+    path = Path("alunos.json")
+    if not path.exists():
+        return []
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
 banco = get_banco()
+alunos = carregar_alunos()
+nomes_alunos = ["Selecionar aluno..."] + [a["nome"] for a in alunos]
 todos_equipamentos = sorted({e.eq_primario for e in banco if e.eq_primario and e.eq_primario != "Sem equipamento"})
 todos_padroes = sorted({e.padrao for e in banco if e.padrao})
 
@@ -342,6 +355,12 @@ with st.sidebar:
 
     st.markdown("---")
 
+    # Alunos para exportação
+    with st.expander("Exportar treino"):
+        aluno_selecionado = st.selectbox("Aluno", nomes_alunos, key="aluno_exp")
+
+    st.markdown("---")
+
     # Botão gerar nativo na sidebar (para capturar o clique)
     gerar = st.button("▶ Gerar treino", type="primary", use_container_width=True)
 
@@ -413,6 +432,26 @@ if st.session_state.sessao:
             st.rerun()
 
     st.markdown("---")
+
+    # Exportar como PNG
+    aluno_exp = st.session_state.get("aluno_exp", "Selecionar aluno...")
+    if aluno_exp and aluno_exp != "Selecionar aluno...":
+        # Carregar logo do arquivo fixo
+        logo_bytes = None
+        logo_path = Path("logo.png")
+        if not logo_path.exists():
+            logo_path = Path("logo.jpg")
+        if logo_path.exists():
+            logo_bytes = logo_path.read_bytes()
+        png_bytes = gerar_png(sessao, aluno_exp, logo_bytes=logo_bytes)
+        st.download_button(
+            label="⬇ Baixar treino (PNG)",
+            data=png_bytes,
+            file_name=f"treino_{aluno_exp.lower().replace(' ','_')}.png",
+            mime="image/png",
+            use_container_width=True,
+        )
+        st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
 
     # Inicializar estado de substituição inline
     if "sub_alvo_inline" not in st.session_state:
