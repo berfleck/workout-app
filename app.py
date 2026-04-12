@@ -170,15 +170,30 @@ todos_padroes = sorted({e.padrao for e in banco if e.padrao})
 # Sidebar — painel de configuração
 # ---------------------------------------------------------------------------
 
+PADROES_LABELS = {
+    "horizontal_push": "Horizontal Push",
+    "horizontal_pull": "Horizontal Pull",
+    "vertical_push":   "Vertical Push",
+    "vertical_pull":   "Vertical Pull",
+    "squat":           "Squat",
+    "hinge":           "Hinge",
+    "abduction":       "Abdução",
+    "adduction":       "Adução",
+    "core":            "Core",
+    "biceps":          "Bíceps",
+    "triceps":         "Tríceps",
+    "flexao_plantar":  "Flexão Plantar",
+    "cardio":          "Cardio",
+}
+
 with st.sidebar:
     st.markdown("## ⚙️ Configuração")
     st.markdown("---")
 
-    # Estrutura do treino
-    st.markdown("**Estrutura**")
+    # Modo de seleção — padrão: Categorias
     modo = st.radio(
         "Modo de seleção",
-        ["Template", "Padrões livres"],
+        ["Categorias", "Template"],
         label_visibility="collapsed",
     )
 
@@ -188,38 +203,23 @@ with st.sidebar:
             list(TEMPLATES.keys()),
         )
         padroes_selecionados = TEMPLATES[template_nome]
-        st.caption(f"Padrões: {', '.join(padroes_selecionados)}")
+        st.caption(f"Categorias: {', '.join(padroes_selecionados)}")
     else:
-        PADROES_LABELS = {
-            "horizontal_push": "Horizontal Push",
-            "horizontal_pull": "Horizontal Pull",
-            "vertical_push":   "Vertical Push",
-            "vertical_pull":   "Vertical Pull",
-            "squat":           "Squat",
-            "hinge":           "Hinge",
-            "abduction":       "Abdução",
-            "adduction":       "Adução",
-            "core":            "Core",
-            "biceps":          "Bíceps",
-            "triceps":         "Tríceps",
-            "flexao_plantar":  "Flexão Plantar",
-            "cardio":          "Cardio",
-        }
         padroes_selecionados = []
         for padrao, label in PADROES_LABELS.items():
             if padrao in todos_padroes:
-                checked = padrao in ["horizontal_push", "hinge", "vertical_pull"]
-                if st.checkbox(label, value=checked, key=f"chk_{padrao}"):
+                if st.checkbox(label, value=False, key=f"chk_{padrao}"):
                     padroes_selecionados.append(padrao)
 
     st.markdown("---")
 
-    # Exercícios por padrão
-    st.markdown("**Exercícios por padrão**")
+    # Exercícios por categoria
+    st.markdown("**Exercícios por categoria**")
     epp_custom = {}
     for p in (padroes_selecionados or []):
         default_n = EXERCICIOS_POR_PADRAO.get(p, 1)
-        epp_custom[p] = st.slider(p, 1, 3, default_n, key=f"epp_{p}")
+        label_p = PADROES_LABELS.get(p, p)
+        epp_custom[p] = st.slider(label_p, 1, 3, default_n, key=f"epp_{p}")
 
     st.markdown("---")
 
@@ -243,10 +243,6 @@ with st.sidebar:
     )
     exercicios_travados = [e for e in banco if e.nome in nomes_travados]
 
-    st.markdown("---")
-
-    gerar = st.button("Gerar treino", type="primary")
-
 
 # ---------------------------------------------------------------------------
 # Área principal
@@ -258,6 +254,19 @@ st.markdown("""
     <div class="main-sub">Personal Training · Sessões personalizadas</div>
 </div>
 """, unsafe_allow_html=True)
+
+# Botão gerar — fixo no topo da área principal
+col_gerar, col_info = st.columns([2, 3])
+with col_gerar:
+    gerar = st.button("▶ Gerar treino", type="primary", use_container_width=True)
+with col_info:
+    if padroes_selecionados:
+        labels_sel = [PADROES_LABELS.get(p, p) for p in padroes_selecionados]
+        st.caption("Categorias: " + " · ".join(labels_sel))
+    else:
+        st.caption("Selecione ao menos uma categoria no painel.")
+
+st.markdown("---")
 
 # Inicializar estado
 if "sessao" not in st.session_state:
