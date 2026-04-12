@@ -344,28 +344,30 @@ with st.sidebar:
     )
     exercicios_travados = [e for e in banco if e.nome in nomes_travados]
 
-
-# ---------------------------------------------------------------------------
-# Área principal
-# ---------------------------------------------------------------------------
-
-# Header + botão gerar num único bloco sticky
-col_titulo, col_gerar = st.columns([3, 2])
-with col_titulo:
-    st.markdown("""
-<div style="padding:4px 0 0 0">
-    <div class="main-title">Gerador de Treinos</div>
-    <div class="main-sub">Personal Training · Sessões personalizadas</div>
-</div>""", unsafe_allow_html=True)
-with col_gerar:
+    # Botão gerar — fixo no rodapé da sidebar
+    st.markdown('<div class="sidebar-footer">', unsafe_allow_html=True)
     gerar = st.button("▶ Gerar treino", type="primary", use_container_width=True)
     if padroes_selecionados:
         labels_sel = [PADROES_LABELS.get(p, p) for p in padroes_selecionados]
         st.caption(" · ".join(labels_sel))
     else:
         st.caption("Selecione categorias no painel.")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-st.markdown("<hr style='margin:6px 0 12px 0;border-color:#e5e7eb'>", unsafe_allow_html=True)
+
+# ---------------------------------------------------------------------------
+# Área principal
+# ---------------------------------------------------------------------------
+
+st.markdown("""
+<div class="main-header">
+    <div class="main-title">Gerador de Treinos</div>
+    <div class="main-sub">Personal Training · Sessões personalizadas</div>
+</div>
+""", unsafe_allow_html=True)
+
+# Placeholder — botão gerar está na sidebar
+gerar = False
 
 # Inicializar estado
 if "sessao" not in st.session_state:
