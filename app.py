@@ -344,15 +344,8 @@ with st.sidebar:
     )
     exercicios_travados = [e for e in banco if e.nome in nomes_travados]
 
-    # Botão gerar — fixo no rodapé da sidebar
-    st.markdown('<div class="sidebar-footer">', unsafe_allow_html=True)
+    # Botão gerar nativo na sidebar (para capturar o clique)
     gerar = st.button("▶ Gerar treino", type="primary", use_container_width=True)
-    if padroes_selecionados:
-        labels_sel = [PADROES_LABELS.get(p, p) for p in padroes_selecionados]
-        st.caption(" · ".join(labels_sel))
-    else:
-        st.caption("Selecione categorias no painel.")
-    st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------
@@ -366,8 +359,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Placeholder — botão gerar está na sidebar
-gerar = False
+
 
 # Inicializar estado
 if "sessao" not in st.session_state:
