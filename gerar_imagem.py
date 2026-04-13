@@ -76,6 +76,7 @@ def gerar_png(sessao, nome_aluno: str, logo_bytes=None) -> bytes:
     f_label    = carregar_fonte(FONT_BOLD, 11)
     f_ex_nome  = carregar_fonte(FONT_BOLD, 15)
     f_ex_meta  = carregar_fonte(FONT_REG, 13)
+    f_prescr   = carregar_fonte(FONT_BOLD, 12)
 
     PAD    = 40
     PAD_SM = 20
@@ -108,6 +109,10 @@ def gerar_png(sessao, nome_aluno: str, logo_bytes=None) -> bytes:
         for ex in exercicios:
             nome_lines = wrap_text(ex.nome, f_ex_nome, INNER - PAD_SM * 2, draw_tmp)
             altura += len(nome_lines) * (text_height(f_ex_nome) + 2)
+            # Linha de prescrição se houver
+            tem_prescricao = ex.series or ex.reps or ex.rir is not None
+            if tem_prescricao:
+                altura += text_height(f_prescr) + 4
             altura += 10  # padding entre exercícios
         altura += 16  # espaço após bloco
 
@@ -159,7 +164,11 @@ def gerar_png(sessao, nome_aluno: str, logo_bytes=None) -> bytes:
         ex_heights = []
         for ex in exercicios:
             nome_lines = wrap_text(ex.nome, f_ex_nome, INNER - PAD_SM * 2, draw)
-            h = len(nome_lines) * (text_height(f_ex_nome) + 2) + text_height(f_ex_meta) + 14
+            h = len(nome_lines) * (text_height(f_ex_nome) + 2)
+            tem_prescricao = ex.series or ex.reps or ex.rir is not None
+            if tem_prescricao:
+                h += text_height(f_prescr) + 4
+            h += 10
             ex_heights.append(h)
 
         bloco_h = 28 + sum(ex_heights) + 8
@@ -199,6 +208,19 @@ def gerar_png(sessao, nome_aluno: str, logo_bytes=None) -> bytes:
                     fill=COR_NOME,
                 )
             y += len(nome_lines) * (text_height(f_ex_nome) + 2)
+
+            # Prescrição: séries × reps · RIR X
+            partes_prescr = []
+            if ex.series:
+                partes_prescr.append(f"{ex.series} séries")
+            if ex.reps:
+                partes_prescr.append(f"{ex.reps} reps")
+            if ex.rir is not None:
+                partes_prescr.append(f"RIR {ex.rir}")
+            if partes_prescr:
+                prescr_txt = " · ".join(partes_prescr)
+                draw.text((nome_x, y + 2), prescr_txt, font=f_prescr, fill=COR_ACENTO)
+                y += text_height(f_prescr) + 4
 
             y += 10
 

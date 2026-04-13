@@ -77,6 +77,10 @@ class Exercicio:
     similaridade: str
     musculo_primario: str
     obs: Optional[str]
+    # Prescrição (definida pelo personal na UI, não vem do banco)
+    series: Optional[int] = None
+    reps: Optional[str] = None   # ex: "8-12", "10", "12-15"
+    rir: Optional[int] = None    # Reps In Reserve 0-4
 
 
 @dataclass
@@ -342,6 +346,11 @@ def substituir_exercicio(
             bloco_idx = i
             posicao = "ex2"
             break
+        if bloco.ex3 and bloco.ex3.nome == nome_atual:
+            exercicio_alvo = bloco.ex3
+            bloco_idx = i
+            posicao = "ex3"
+            break
 
     if exercicio_alvo is None:
         print(f"  [!] Exercício '{nome_atual}' não encontrado na sessão.")
@@ -354,6 +363,8 @@ def substituir_exercicio(
             sims_em_uso.add(bloco.ex1.similaridade)
         if bloco.ex2 and bloco.ex2.nome != nome_atual:
             sims_em_uso.add(bloco.ex2.similaridade)
+        if bloco.ex3 and bloco.ex3.nome != nome_atual:
+            sims_em_uso.add(bloco.ex3.similaridade)
 
     # Nomes já em uso na sessão
     nomes_em_uso = set()
@@ -361,6 +372,8 @@ def substituir_exercicio(
         nomes_em_uso.add(bloco.ex1.nome)
         if bloco.ex2:
             nomes_em_uso.add(bloco.ex2.nome)
+        if bloco.ex3:
+            nomes_em_uso.add(bloco.ex3.nome)
     nomes_em_uso.discard(nome_atual)
 
     # Buscar substituto: mesmo padrão, similaridade não usada
@@ -392,8 +405,10 @@ def substituir_exercicio(
     bloco = nova_sessao.blocos[bloco_idx]
     if posicao == "ex1":
         bloco.ex1 = substituto
-    else:
+    elif posicao == "ex2":
         bloco.ex2 = substituto
+    else:
+        bloco.ex3 = substituto
 
     print(f"  [✓] '{nome_atual}' substituído por '{substituto.nome}'")
     return nova_sessao
@@ -562,7 +577,7 @@ def buscar_substitutos(
     nomes_em_uso = set()
     sims_em_uso = set()
     for bloco in sessao.blocos:
-        for ex in [bloco.ex1, bloco.ex2]:
+        for ex in [bloco.ex1, bloco.ex2, bloco.ex3]:
             if ex and ex.nome != nome_atual:
                 nomes_em_uso.add(ex.nome)
                 sims_em_uso.add(ex.similaridade)
@@ -618,6 +633,10 @@ def substituir_exercicio_por(
             return nova_sessao
         if bloco.ex2 and bloco.ex2.nome == nome_atual:
             bloco.ex2 = substituto
+            print(f"  [✓] '{nome_atual}' → '{nome_substituto}'")
+            return nova_sessao
+        if bloco.ex3 and bloco.ex3.nome == nome_atual:
+            bloco.ex3 = substituto
             print(f"  [✓] '{nome_atual}' → '{nome_substituto}'")
             return nova_sessao
 
