@@ -3,6 +3,7 @@ import random
 import json
 import io
 import zipfile
+import unicodedata
 from pathlib import Path
 from gerador_treino import (
     carregar_banco, gerar_sessao, gerar_multiplos_treinos,
@@ -164,25 +165,31 @@ def gerar_zip(sessoes: list, nome_aluno: str, logo_bytes) -> bytes:
     return buf.getvalue()
 
 
+def _normalizar(texto: str) -> str:
+    """Remove acentos e converte para minúsculas para busca fuzzy."""
+    return unicodedata.normalize("NFD", texto).encode("ascii", "ignore").decode().lower()
+
+
 def filtrar_banco(
     texto: str = "",
-    padrao: str = "(qualquer)",
-    purpose: str = "(qualquer)",
-    unilateral: str = "(qualquer)",
+    padrao: str = None,
+    purpose: str = None,
+    unilateral: str = None,
     max_cx: int = 5,
 ) -> list:
-    """Filtra o banco para o painel de adicionar exercício / novo bloco."""
+    """Filtra o banco — busca por nome é case-insensitive e ignora acentos.
+    Passar None (ou '(qualquer)') em padrao/purpose/unilateral = sem filtro."""
     resultado = list(banco)
-    if padrao != "(qualquer)":
+    if padrao and padrao != "(qualquer)":
         resultado = [e for e in resultado if e.padrao == padrao]
-    if purpose != "(qualquer)":
+    if purpose and purpose != "(qualquer)":
         resultado = [e for e in resultado if e.purpose == purpose]
-    if unilateral != "(qualquer)":
+    if unilateral and unilateral != "(qualquer)":
         resultado = [e for e in resultado if e.unilateral == unilateral]
     resultado = [e for e in resultado if e.complexidade <= max_cx]
     if texto.strip():
-        txt = texto.strip().lower()
-        resultado = [e for e in resultado if txt in e.nome.lower()]
+        txt_norm = _normalizar(texto.strip())
+        resultado = [e for e in resultado if txt_norm in _normalizar(e.nome)]
     resultado.sort(key=lambda e: (e.purpose != "compound", e.nome))
     return resultado
 
@@ -211,7 +218,7 @@ def render_editar(sessao: Sessao, t: int, max_cx: int):
         exs = [e for e in [bloco.ex1, bloco.ex2, bloco.ex3] if e]
         n_exs = len(exs)
 
-        # Cabeçalho do bloco: label + setas + botão remover bloco
+        # Cabeçalho do bloco: label + setas + lixeira
         col_lbl, col_up, col_dn, col_del_bloco = st.columns([12, 1, 1, 1])
         with col_lbl:
             st.markdown(f"<p class='bloco-lbl'>Bloco {bloco.label}</p>", unsafe_allow_html=True)
@@ -230,12 +237,11 @@ def render_editar(sessao: Sessao, t: int, max_cx: int):
                 st.session_state.sessoes[t].blocos = bl
                 st.rerun()
         with col_del_bloco:
-            if st.button("🗑", key=f"del_bloco_{t}_{i}", help="Remover bloco inteiro"):
+            if st.button("🗑", key=f"del_bloco_{t}_{i}", help="Remover bloco"):
                 bl = sessao.blocos[:]
                 bl.pop(i)
                 for j, b in enumerate(bl): b.label = labels[j]
                 st.session_state.sessoes[t].blocos = bl
-                # Limpa estado de add_ex deste bloco
                 st.session_state.add_ex_alvo.pop((t, i), None)
                 st.session_state.add_ex_cands.pop((t, i), None)
                 st.rerun()
@@ -245,6 +251,7 @@ def render_editar(sessao: Sessao, t: int, max_cx: int):
             eq  = ex.eq_primario + (f" + {ex.eq_secundario}" if ex.eq_secundario else "")
             obs = f" · {ex.obs}" if ex.obs else ""
             pk  = f"p_{t}_{bloco.label}_{idx}"
+            sub_key = f"{t}_{i}_{idx}"
 
             col_ex, col_sub, col_rm = st.columns([14, 1, 1])
             with col_ex:
@@ -255,16 +262,23 @@ def render_editar(sessao: Sessao, t: int, max_cx: int):
                     unsafe_allow_html=True,
                 )
             with col_sub:
-                if st.button("↺", key=f"sub_btn_{t}_{i}_{idx}", help="Substituir"):
-                    st.session_state.sub_alvo[t] = ex.nome
-                    st.session_state.candidatos[t] = []
-                    st.session_state.add_ex_alvo.pop((t, i), None)
+                sub_aberto = st.session_state.sub_alvo[t] == sub_key
+                if st.button("✕" if sub_aberto else "↺",
+                             key=f"sub_btn_{t}_{i}_{idx}",
+                             help="Fechar" if sub_aberto else "Substituir"):
+                    if sub_aberto:
+                        st.session_state.sub_alvo[t] = None
+                        st.session_state.candidatos[t] = []
+                    else:
+                        st.session_state.sub_alvo[t] = sub_key
+                        st.session_state.candidatos[t] = []
+                        st.session_state.add_ex_alvo.pop((t, i), None)
+                    st.rerun()
             with col_rm:
                 if st.button("✕", key=f"rm_ex_{t}_{i}_{idx}", help="Remover exercício"):
                     target = st.session_state.sessoes[t].blocos[i]
                     ri = idx - 1
                     if ri == 0:
-                        # Desloca ex2→ex1, ex3→ex2
                         target.ex1 = target.ex2
                         target.ex2 = target.ex3
                         target.ex3 = None
@@ -273,7 +287,6 @@ def render_editar(sessao: Sessao, t: int, max_cx: int):
                         target.ex3 = None
                     else:
                         target.ex3 = None
-                    # Se bloco ficou vazio, remove o bloco
                     if not any([target.ex1, target.ex2, target.ex3]):
                         bl = st.session_state.sessoes[t].blocos[:]
                         bl.pop(i)
@@ -290,9 +303,9 @@ def render_editar(sessao: Sessao, t: int, max_cx: int):
                     unsafe_allow_html=True,
                 )
             with pc1:
-                new_s = st.number_input("S", 1, 10, ex.series or 3, key=f"s_{pk}", label_visibility="collapsed")
+                new_s = st.number_input("Séries", 1, 10, ex.series or 3, key=f"s_{pk}", label_visibility="collapsed")
             with pc2:
-                new_r = st.text_input("R", ex.reps or "8-12", key=f"r_{pk}", placeholder="reps", label_visibility="collapsed")
+                new_r = st.text_input("Reps", ex.reps or "8-12", key=f"r_{pk}", placeholder="reps", label_visibility="collapsed")
             with pc3:
                 new_rir = st.number_input("RIR", 0, 4, ex.rir if ex.rir is not None else 2, key=f"rir_{pk}", label_visibility="collapsed")
             with pc4:
@@ -309,7 +322,11 @@ def render_editar(sessao: Sessao, t: int, max_cx: int):
                         else: target.ex3 = slot[2]
                     st.rerun()
 
-        # Botão "+ Exercício" (só aparece se bloco tem menos de 3)
+            # Painel substituição INLINE — logo abaixo do exercício
+            if st.session_state.sub_alvo[t] == sub_key:
+                _render_painel_substituicao_inline(t, i, idx, ex, sessao, max_cx)
+
+        # Botão "+ Exercício"
         if n_exs < 3:
             add_key = (t, i)
             painel_aberto = st.session_state.add_ex_alvo.get(add_key, False)
@@ -321,7 +338,6 @@ def render_editar(sessao: Sessao, t: int, max_cx: int):
                 else:
                     st.session_state.add_ex_alvo[add_key] = True
                     st.session_state.add_ex_cands[add_key] = []
-                    # Fecha painel de substituição se estiver aberto
                     st.session_state.sub_alvo[t] = None
                 st.rerun()
 
@@ -344,10 +360,82 @@ def render_editar(sessao: Sessao, t: int, max_cx: int):
     if novo_aberto:
         _render_painel_novo_bloco(t, sessao, max_cx)
 
-    # Painel substituição
-    alvo = st.session_state.sub_alvo[t]
-    if alvo:
-        _render_painel_substituicao(t, sessao, alvo, max_cx)
+
+def _render_painel_substituicao_inline(t: int, i: int, idx: int, ex, sessao: Sessao, max_cx: int):
+    """Painel de substituição inline — logo abaixo do exercício, com busca por nome."""
+    sub_key = f"{t}_{i}_{idx}"
+    st.markdown(
+        f"<div class='sub-panel'>"
+        f"<p style='font-size:12px;font-weight:700;color:#92400e;margin:0 0 8px 0'>"
+        f"↺ Substituir: {ex.nome}</p></div>",
+        unsafe_allow_html=True,
+    )
+
+    # Filtros — busca por nome + dropdowns
+    fs0, fs1, fs2, fs3 = st.columns([3, 2, 2, 2])
+    with fs0:
+        txt = st.text_input("Buscar por nome", key=f"sub_txt_{sub_key}",
+                            placeholder="ex: bul → Búlgaro...")
+    with fs1:
+        f_pad = st.selectbox("Categoria", ["(qualquer)"] + sorted(PADROES_LABELS.keys()),
+            key=f"f_pad_{sub_key}",
+            format_func=lambda x: PADROES_LABELS.get(x, x) if x != "(qualquer)" else "Qualquer")
+    with fs2:
+        f_pur = st.selectbox("Purpose",
+            ["(qualquer)", "compound", "isolation", "stability", "explosive"],
+            key=f"f_pur_{sub_key}")
+    with fs3:
+        f_uni = st.selectbox("Lateralidade",
+            ["(qualquer)", "bilateral", "unilateral"],
+            key=f"f_uni_{sub_key}")
+
+    f_ign = st.checkbox("Ignorar similaridade já usada", value=True, key=f"f_ign_{sub_key}")
+
+    # Nomes e similaridades em uso na sessão (excluindo o exercício alvo)
+    nomes_em_uso = {
+        e.nome for bloco in sessao.blocos
+        for e in [bloco.ex1, bloco.ex2, bloco.ex3] if e and e.nome != ex.nome
+    }
+    sims_em_uso = {
+        e.similaridade for bloco in sessao.blocos
+        for e in [bloco.ex1, bloco.ex2, bloco.ex3] if e and e.nome != ex.nome
+    }
+
+    cands = filtrar_banco(
+        texto=txt,
+        padrao=None if f_pad == "(qualquer)" else f_pad,
+        purpose=None if f_pur == "(qualquer)" else f_pur,
+        unilateral=None if f_uni == "(qualquer)" else f_uni,
+        max_cx=max_cx,
+    )
+    cands = [e for e in cands if e.nome not in nomes_em_uso and e.nome != ex.nome]
+    if not f_ign:
+        cands = [e for e in cands if e.similaridade not in sims_em_uso]
+
+    cb1, cb2 = st.columns(2)
+    with cb1:
+        if st.button("🎲 Aleatório", key=f"sub_alea_{sub_key}", use_container_width=True,
+                     help="Substitui por exercício do mesmo padrão, aleatório"):
+            st.session_state.sessoes[t] = substituir_exercicio(
+                sessao, ex.nome, banco, max_complexidade=max_cx)
+            st.session_state.sub_alvo[t] = None
+            st.session_state.candidatos[t] = []
+            st.rerun()
+    with cb2:
+        st.caption(f"{len(cands)} exercício(s)")
+
+    if cands:
+        nomes_c = [f"{e.nome}  [{e.purpose} · {e.eq_primario}]" for e in cands[:60]]
+        escolha = st.radio("Escolha o substituto", nomes_c,
+                           key=f"sub_radio_{sub_key}", label_visibility="collapsed")
+        escolha_nome = escolha.split("  [")[0]
+        if st.button("✅ Aplicar", type="primary", key=f"sub_aplicar_{sub_key}"):
+            st.session_state.sessoes[t] = substituir_exercicio_por(sessao, ex.nome, escolha_nome, banco)
+            st.session_state.sub_alvo[t] = None
+            st.session_state.candidatos[t] = []
+            st.rerun()
+    elif txt or f_pad != "(qualquer)" or f_pur != "(qualquer)" or f_uni != "(qualquer)":
+        st.caption("Nenhum exercício encontrado com esses filtros.")
 
 
 def _render_painel_adicionar(t: int, i: int, bloco: SuperSerie, max_cx: int):
@@ -394,7 +482,7 @@ def _render_painel_adicionar(t: int, i: int, bloco: SuperSerie, max_cx: int):
 
     if cands:
         nomes_c = [f"{e.nome}  [{e.purpose} · {e.eq_primario}]" for e in cands[:50]]
-        escolha = st.radio("", nomes_c, key=f"add_radio_{t}_{i}", label_visibility="collapsed")
+        escolha = st.radio("Escolha o exercício", nomes_c, key=f"add_radio_{t}_{i}", label_visibility="collapsed")
         escolha_nome = escolha.split("  [")[0]
         if st.button("✅ Adicionar", type="primary", key=f"add_aplicar_{t}_{i}"):
             novo_ex = next((e for e in cands if e.nome == escolha_nome), None)
@@ -465,7 +553,7 @@ def _render_painel_novo_bloco(t: int, sessao: Sessao, max_cx: int):
 
     if cands:
         nomes_c = [f"{e.nome}  [{e.purpose} · {e.eq_primario}]" for e in cands[:50]]
-        escolha = st.radio("", nomes_c, key=f"nb_radio_{t}", label_visibility="collapsed")
+        escolha = st.radio("Escolha o exercício", nomes_c, key=f"nb_radio_{t}", label_visibility="collapsed")
         escolha_nome = escolha.split("  [")[0]
         if st.button("✅ Criar bloco", type="primary", key=f"nb_aplicar_{t}"):
             novo_ex = next((e for e in cands if e.nome == escolha_nome), None)
@@ -484,59 +572,6 @@ def _aplicar_novo_bloco(t: int, sessao: Sessao, novo_ex):
     st.session_state.sessoes[t].blocos.append(novo_bloco)
     st.session_state.novo_bloco_cands.pop(t, None)
 
-
-def _render_painel_substituicao(t: int, sessao: Sessao, alvo: str, max_cx: int):
-    """Painel de substituição de exercício existente."""
-    st.markdown(
-        f"<div class='sub-panel'>"
-        f"<p style='font-size:13px;font-weight:600;color:#92400e;margin:0 0 10px 0'>"
-        f"↺ Substituir: {alvo}</p></div>",
-        unsafe_allow_html=True,
-    )
-    fc1, fc2, fc3 = st.columns(3)
-    with fc1:
-        f_pad = st.selectbox("Categoria", ["(qualquer)"] + sorted(PADROES_LABELS.keys()), key=f"f_pad_{t}",
-            format_func=lambda x: PADROES_LABELS.get(x, x) if x != "(qualquer)" else "Qualquer")
-    with fc2:
-        f_pur = st.selectbox("Purpose", ["(qualquer)", "compound", "isolation", "stability", "explosive"], key=f"f_pur_{t}")
-    with fc3:
-        f_uni = st.selectbox("Lateralidade", ["(qualquer)", "bilateral", "unilateral"], key=f"f_uni_{t}")
-    f_ign = st.checkbox("Ignorar similaridade já usada", value=True, key=f"f_ign_{t}")
-
-    cb1, cb2, cb3 = st.columns(3)
-    with cb1:
-        if st.button("🔍 Buscar", key=f"buscar_{t}", use_container_width=True):
-            st.session_state.candidatos[t] = buscar_substitutos(
-                sessao, nome_atual=alvo, banco=banco,
-                padrao=None if f_pad == "(qualquer)" else f_pad,
-                purpose=None if f_pur == "(qualquer)" else f_pur,
-                unilateral=None if f_uni == "(qualquer)" else f_uni,
-                max_complexidade=max_cx,
-                ignorar_similaridade_usada=f_ign,
-            )
-    with cb2:
-        if st.button("🎲 Aleatório", key=f"alea_{t}", use_container_width=True):
-            st.session_state.sessoes[t] = substituir_exercicio(sessao, alvo, banco, max_complexidade=max_cx)
-            st.session_state.sub_alvo[t] = None
-            st.session_state.candidatos[t] = []
-            st.rerun()
-    with cb3:
-        if st.button("✕ Cancelar", key=f"cancel_{t}", use_container_width=True):
-            st.session_state.sub_alvo[t] = None
-            st.session_state.candidatos[t] = []
-            st.rerun()
-
-    cands = st.session_state.candidatos[t]
-    if cands:
-        st.caption(f"{len(cands)} candidato(s)")
-        nomes_c = [f"{e.nome}  [{e.purpose} · {e.eq_primario}]" for e in cands]
-        escolha = st.radio("", nomes_c, key=f"radio_{t}", label_visibility="collapsed")
-        escolha_nome = escolha.split("  [")[0]
-        if st.button("✅ Aplicar", type="primary", key=f"aplicar_{t}"):
-            st.session_state.sessoes[t] = substituir_exercicio_por(sessao, alvo, escolha_nome, banco)
-            st.session_state.sub_alvo[t] = None
-            st.session_state.candidatos[t] = []
-            st.rerun()
 
 
 # ---------------------------------------------------------------------------
