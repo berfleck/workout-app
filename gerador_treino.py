@@ -18,36 +18,67 @@ from typing import Optional
 
 XLSX_PATH = "banco_exercicios.xlsx"
 
-TEMPLATES = {
-    "Push + Hip":          ["horizontal_push", "vertical_push", "hinge", "core"],
-    "Pull + Knee":         ["horizontal_pull", "vertical_pull", "squat", "core"],
-    "Full Body":           ["horizontal_push", "horizontal_pull", "vertical_push", "vertical_pull", "squat", "hinge", "abduction", "adduction", "biceps", "triceps", "flexao_plantar", "core"],
-    "Full Body + Braços":  ["horizontal_push", "horizontal_pull", "vertical_push", "vertical_pull", "squat", "hinge", "biceps", "triceps", "core"],
-    "Push + Bíceps":       ["horizontal_push", "vertical_push", "biceps", "core"],
-    "Pull + Tríceps":      ["horizontal_pull", "vertical_pull", "triceps", "core"],
-    "Pull + Core":         ["horizontal_pull", "vertical_pull", "core"],
-    "Upper Body":          ["horizontal_push", "vertical_push", "horizontal_pull", "vertical_pull", "biceps", "triceps"],
-    "Lower Body":          ["squat", "hinge", "abduction", "adduction", "core"],
-    "Glúteos + Quadril":   ["hinge", "abduction", "adduction", "core"],
-    "Braços":              ["biceps", "triceps", "core"],
-    "Panturrilha + Braços":["flexao_plantar", "biceps", "triceps"],
-    "Cardio + Força":      ["cardio", "squat", "hinge", "horizontal_push"],
+# Padrões disponíveis e defaults de exercícios por padrão (usado no modo livre)
+EXERCICIOS_POR_PADRAO = {
+    "horizontal_push": 1,
+    "horizontal_pull": 1,
+    "vertical_push":   1,
+    "vertical_pull":   1,
+    "squat":           1,
+    "hinge":           1,
+    "core":            1,
+    "cardio":          1,
+    "biceps":          1,
+    "triceps":         1,
+    "flexao_plantar":  1,
+    "abduction":       1,
+    "adduction":       1,
 }
 
-EXERCICIOS_POR_PADRAO = {
-    "horizontal_push": 2,
-    "horizontal_pull": 2,
-    "vertical_push":   1,
-    "vertical_pull":   2,
-    "squat":           2,
-    "hinge":           2,
-    "core":            2,
-    "cardio":          1,
-    "biceps":          2,
-    "triceps":         2,
-    "flexao_plantar":     2,
-    "abduction":       2,
-    "adduction":       2,
+# Templates: lista de padrões
+TEMPLATES = {
+    "Full Body": [
+        "horizontal_pull", "vertical_pull",
+        "horizontal_push", "vertical_push",
+        "squat", "hinge", "abduction", "adduction", "core",
+    ],
+    "Full Body + Braços": [
+        "horizontal_pull", "vertical_pull",
+        "horizontal_push", "vertical_push",
+        "squat", "hinge", "abduction", "adduction", "core",
+        "biceps", "triceps",
+    ],
+    "Empurrar + Posterior": [
+        "horizontal_push", "vertical_push",
+        "hinge", "abduction", "core", "biceps", "triceps",
+    ],
+    "Puxar + Anterior": [
+        "horizontal_pull", "vertical_pull",
+        "squat", "adduction", "core", "biceps", "triceps",
+    ],
+}
+
+# EPP padrão por template (quantos exercícios cada categoria inicia por padrão)
+TEMPLATE_EPP = {
+    "Full Body": {
+        "horizontal_pull": 1, "vertical_pull": 1,
+        "horizontal_push": 1, "vertical_push": 1,
+        "squat": 1, "hinge": 1, "abduction": 1, "adduction": 1, "core": 1,
+    },
+    "Full Body + Braços": {
+        "horizontal_pull": 1, "vertical_pull": 1,
+        "horizontal_push": 1, "vertical_push": 1,
+        "squat": 1, "hinge": 1, "abduction": 1, "adduction": 1, "core": 1,
+        "biceps": 1, "triceps": 1,
+    },
+    "Empurrar + Posterior": {
+        "horizontal_push": 2, "vertical_push": 2,
+        "hinge": 2, "abduction": 1, "core": 2, "biceps": 1, "triceps": 1,
+    },
+    "Puxar + Anterior": {
+        "horizontal_pull": 2, "vertical_pull": 2,
+        "squat": 2, "adduction": 1, "core": 2, "biceps": 1, "triceps": 1,
+    },
 }
 
 # Não parear dois exercícios com fadiga >= este valor no mesmo bloco
@@ -478,8 +509,71 @@ def gerar_sessao(
 
 
 # ---------------------------------------------------------------------------
-# Impressão
+# Geração de múltiplos treinos com compartilhamento de estado de similaridade
 # ---------------------------------------------------------------------------
+
+def gerar_multiplos_treinos(
+    banco: list[Exercicio],
+    configs: list[dict],
+    variar_entre_treinos: bool = True,
+) -> list[Sessao]:
+    """
+    Gera N sessões de treino evitando repetição de exercícios entre elas.
+
+    Args:
+        banco: banco completo de exercícios
+        configs: lista de dicts, um por treino, com chaves:
+            - padroes: list[str]
+            - exercicios_por_padrao: dict
+            - max_complexidade: int
+            - tamanho_bloco: int
+            - exercicios_travados: list[Exercicio] (opcional)
+            - equipamentos_bloqueados: list[str] (opcional)
+        variar_entre_treinos: se True, similaridades usadas num treino
+            não se repetem nos seguintes (mais variação).
+            Se False, só os nomes exatos são bloqueados entre treinos.
+
+    Returns:
+        Lista de Sessao na mesma ordem de configs.
+    """
+    # Conjuntos globais compartilhados entre treinos
+    nomes_globais: set[str] = set()
+    sims_globais: set[str] = set()
+
+    sessoes = []
+    for cfg in configs:
+        padroes   = cfg.get("padroes", [])
+        epp       = cfg.get("exercicios_por_padrao", {p: 1 for p in padroes})
+        max_cx    = cfg.get("max_complexidade", 5)
+        tam_bloco = cfg.get("tamanho_bloco", 2)
+        travados  = cfg.get("exercicios_travados", [])
+        eq_bloq   = cfg.get("equipamentos_bloqueados", [])
+
+        # Bloqueia nomes já usados em treinos anteriores
+        banco_filtrado = [e for e in banco if e.nome not in nomes_globais]
+
+        sessao = gerar_sessao(
+            banco_filtrado,
+            padroes,
+            exercicios_por_padrao=epp,
+            equipamentos_bloqueados=eq_bloq,
+            max_complexidade=max_cx,
+            exercicios_travados=travados,
+            tamanho_bloco=tam_bloco,
+            variacao_pais_usados=sims_globais if variar_entre_treinos else set(),
+        )
+
+        # Registra o que foi usado para os próximos treinos
+        for bloco in sessao.blocos:
+            for ex in [bloco.ex1, bloco.ex2, bloco.ex3]:
+                if ex:
+                    nomes_globais.add(ex.nome)
+                    if variar_entre_treinos:
+                        sims_globais.add(ex.similaridade)
+
+        sessoes.append(sessao)
+
+    return sessoes
 
 def imprimir_sessao(sessao: Sessao):
     print("=" * 60)
