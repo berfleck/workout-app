@@ -1,15 +1,24 @@
 [
   {
-    "nome": "Aluno Exemplo",
-    "nivel": "intermediario",
+    "nome": "Bernardo Fleck",
+    "nivel": "avancado",
     "objetivo": "hipertrofia",
     "restricoes": [],
     "obs": ""
   },
   {
-    "nome": "Bernardo Fleck",
-    "nivel": "avancado",
+    "nome": "Vini Silva",
+    "nivel": "iniciante",
     "objetivo": "hipertrofia",
+    "restricoes": [
+      "todo o corpo"
+    ],
+    "obs": ""
+  },
+  {
+    "nome": "Ricardo Gherke",
+    "nivel": "avancado",
+    "objetivo": "forca",
     "restricoes": [],
     "obs": ""
   }
