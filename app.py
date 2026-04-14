@@ -392,7 +392,7 @@ with tab_treino:
             max_cx = st.slider("Complexidade máx.", 1, 5, 5, key="max_cx")
         with cg4:
             variar = st.checkbox(
-                "Variar exercícios entre treinos", value=True, key="variar_entre",
+                "Evitar similaridade entre treinos", value=False, key="variar_entre",
                 help="Evita repetir grupos de similaridade entre treinos",
             )
         with cg5:
