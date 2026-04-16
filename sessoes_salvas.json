@@ -1,0 +1,133 @@
+[
+  {
+    "tipo": "upper(6)",
+    "blocos": [
+      {
+        "label": "A",
+        "ex1": {
+          "nome": "Desenvolvimento Smith",
+          "variacao_de": "Desenvolvimento",
+          "eq_primario": "Barra Smith (crossover)",
+          "eq_secundario": null,
+          "regiao": "upper",
+          "padrao": "ombro_composto",
+          "purpose": "compound",
+          "unilateral": "bilateral",
+          "complexidade": 2,
+          "fadiga": 3,
+          "circuito": "não",
+          "similaridade": "vertical_press_compound",
+          "musculo_primario": "deltóide, tríceps",
+          "obs": null,
+          "series": null,
+          "reps": null,
+          "rir": null
+        },
+        "ex2": {
+          "nome": "Rosca spider",
+          "variacao_de": "Rosca bíceps",
+          "eq_primario": "Banco inclinável",
+          "eq_secundario": "Halteres",
+          "regiao": "upper",
+          "padrao": "biceps",
+          "purpose": "isolation",
+          "unilateral": "bilateral",
+          "complexidade": 2,
+          "fadiga": 2,
+          "circuito": "não",
+          "similaridade": "elbow_flexion_isolation",
+          "musculo_primario": "bíceps",
+          "obs": "banco a 45° invertido",
+          "series": null,
+          "reps": null,
+          "rir": null
+        },
+        "ex3": null
+      },
+      {
+        "label": "B",
+        "ex1": {
+          "nome": "Remada horizontal (máquina)",
+          "variacao_de": "Remada horizontal",
+          "eq_primario": "Remada horizontal",
+          "eq_secundario": null,
+          "regiao": "upper",
+          "padrao": "remadas",
+          "purpose": "compound",
+          "unilateral": "bilateral",
+          "complexidade": 1,
+          "fadiga": 3,
+          "circuito": "não",
+          "similaridade": "horizontal_pull_compound",
+          "musculo_primario": "dorsal, romboides",
+          "obs": null,
+          "series": null,
+          "reps": null,
+          "rir": null
+        },
+        "ex2": {
+          "nome": "Crossover banco",
+          "variacao_de": "crossover",
+          "eq_primario": "Crossover",
+          "eq_secundario": "Banco inclinável",
+          "regiao": "upper",
+          "padrao": "empurrar_isolados",
+          "purpose": "isolation",
+          "unilateral": "bilateral",
+          "complexidade": 2,
+          "fadiga": 3,
+          "circuito": "sim",
+          "similaridade": "horizontal_press_compound",
+          "musculo_primario": "peitoral",
+          "obs": "polia alta",
+          "series": null,
+          "reps": null,
+          "rir": null
+        },
+        "ex3": null
+      },
+      {
+        "label": "C",
+        "ex1": {
+          "nome": "Supino Smith inclinado",
+          "variacao_de": "Supino",
+          "eq_primario": "Barra Smith (crossover)",
+          "eq_secundario": "Banco inclinável",
+          "regiao": "upper",
+          "padrao": "empurrar_compostos",
+          "purpose": "compound",
+          "unilateral": "bilateral",
+          "complexidade": 2,
+          "fadiga": 3,
+          "circuito": "não",
+          "similaridade": "horizontal_press_compound",
+          "musculo_primario": "peitoral, tríceps",
+          "obs": null,
+          "series": null,
+          "reps": null,
+          "rir": null
+        },
+        "ex2": {
+          "nome": "Puxada neutra",
+          "variacao_de": "Puxada",
+          "eq_primario": "Puxada",
+          "eq_secundario": "Triangulo",
+          "regiao": "upper",
+          "padrao": "puxadas",
+          "purpose": "compound",
+          "unilateral": "bilateral",
+          "complexidade": 1,
+          "fadiga": 3,
+          "circuito": "não",
+          "similaridade": "vertical_pull_compound",
+          "musculo_primario": "dorsal, bíceps",
+          "obs": null,
+          "series": null,
+          "reps": null,
+          "rir": null
+        },
+        "ex3": null
+      }
+    ]
+  }
+]

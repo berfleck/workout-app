@@ -6,9 +6,12 @@ import zipfile
 import unicodedata
 from pathlib import Path
 from gerador_treino import (
-    carregar_banco, gerar_sessao, gerar_multiplos_treinos,
+    carregar_banco, gerar_sessao, gerar_sessao_por_demandas, gerar_multiplos_treinos,
     substituir_exercicio, buscar_substitutos, substituir_exercicio_por,
+    expandir_para_padroes,
     TEMPLATES, TEMPLATE_EPP, EXERCICIOS_POR_PADRAO,
+    PADRAO_PARA_SUBREGIAO, SUBREGIAO_PARA_REGIAO,
+    REGIAO_PARA_SUBREGIOES, SUBREGIAO_PARA_PADROES,
     Exercicio, Sessao, SuperSerie,
 )
 from gerar_imagem import gerar_png
@@ -103,24 +106,175 @@ def salvar_alunos(lista):
     with open(Path("alunos.json"), "w", encoding="utf-8") as f:
         json.dump(lista, f, ensure_ascii=False, indent=2)
 
+# ---------------------------------------------------------------------------
+# Persistência de sessões geradas
+# ---------------------------------------------------------------------------
+
+SESSOES_PATH  = Path("sessoes_salvas.json")
+HISTORICO_PATH = Path("historico_treinos.json")
+
+def _exercicio_to_dict(ex: Exercicio) -> dict:
+    return {
+        "nome": ex.nome, "variacao_de": ex.variacao_de,
+        "eq_primario": ex.eq_primario, "eq_secundario": ex.eq_secundario,
+        "regiao": ex.regiao, "padrao": ex.padrao, "purpose": ex.purpose,
+        "unilateral": ex.unilateral, "complexidade": ex.complexidade,
+        "fadiga": ex.fadiga, "circuito": ex.circuito,
+        "similaridade": ex.similaridade, "musculo_primario": ex.musculo_primario,
+        "obs": ex.obs, "series": ex.series, "reps": ex.reps, "rir": ex.rir,
+    }
+
+def _dict_to_exercicio(d: dict) -> Exercicio:
+    return Exercicio(
+        nome=d["nome"], variacao_de=d.get("variacao_de"),
+        eq_primario=d.get("eq_primario", ""), eq_secundario=d.get("eq_secundario"),
+        regiao=d.get("regiao", ""), padrao=d.get("padrao", ""),
+        purpose=d.get("purpose", ""), unilateral=d.get("unilateral", ""),
+        complexidade=d.get("complexidade", 1), fadiga=d.get("fadiga", 1),
+        circuito=d.get("circuito", "não"), similaridade=d.get("similaridade", ""),
+        musculo_primario=d.get("musculo_primario", ""), obs=d.get("obs"),
+        series=d.get("series"), reps=d.get("reps"), rir=d.get("rir"),
+    )
+
+def _sessao_to_dict(s: Sessao) -> dict:
+    blocos = []
+    for b in s.blocos:
+        blocos.append({
+            "label": b.label,
+            "ex1": _exercicio_to_dict(b.ex1) if b.ex1 else None,
+            "ex2": _exercicio_to_dict(b.ex2) if b.ex2 else None,
+            "ex3": _exercicio_to_dict(b.ex3) if b.ex3 else None,
+        })
+    return {"tipo": s.tipo, "blocos": blocos}
+
+def _dict_to_sessao(d: dict) -> Sessao:
+    blocos = []
+    for b in d["blocos"]:
+        blocos.append(SuperSerie(
+            label=b["label"],
+            ex1=_dict_to_exercicio(b["ex1"]) if b.get("ex1") else None,
+            ex2=_dict_to_exercicio(b["ex2"]) if b.get("ex2") else None,
+            ex3=_dict_to_exercicio(b["ex3"]) if b.get("ex3") else None,
+        ))
+    return Sessao(tipo=d["tipo"], blocos=blocos)
+
+def salvar_sessoes(sessoes: list):
+    """Persiste as sessões atuais em disco (snapshot de continuidade)."""
+    try:
+        data = [_sessao_to_dict(s) for s in sessoes]
+        with open(SESSOES_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def carregar_sessoes_salvas() -> list:
+    """Restaura sessões do snapshot. Retorna [] se não existir ou falhar."""
+    if not SESSOES_PATH.exists():
+        return []
+    try:
+        with open(SESSOES_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        return [_dict_to_sessao(d) for d in data]
+    except Exception:
+        return []
+
+# ---------------------------------------------------------------------------
+# Histórico de treinos
+# ---------------------------------------------------------------------------
+
+def carregar_historico() -> list:
+    """Retorna lista de registros do histórico. Cada registro é um dict com
+    id, data, aluno, etiqueta, e lista de sessões serializadas."""
+    if not HISTORICO_PATH.exists():
+        return []
+    try:
+        with open(HISTORICO_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def salvar_historico(historico: list):
+    try:
+        with open(HISTORICO_PATH, "w", encoding="utf-8") as f:
+            json.dump(historico, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def adicionar_ao_historico(sessoes: list, aluno: str, etiqueta: str):
+    """Adiciona o conjunto de sessões ao histórico com metadados."""
+    from datetime import datetime
+    historico = carregar_historico()
+    registro = {
+        "id": datetime.now().strftime("%Y%m%d_%H%M%S"),
+        "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "aluno": aluno or "—",
+        "etiqueta": etiqueta.strip() or f"{len(sessoes)} treino(s)",
+        "n_treinos": len(sessoes),
+        "sessoes": [_sessao_to_dict(s) for s in sessoes],
+    }
+    historico.insert(0, registro)   # mais recente primeiro
+    salvar_historico(historico)
+
 banco = get_banco()
 alunos = carregar_alunos()
 nomes_alunos = ["Selecionar aluno..."] + [a["nome"] for a in alunos]
 todos_padroes = sorted({e.padrao for e in banco if e.padrao})
 
+# Listas únicas para filtros
+todos_equipamentos = sorted({e.eq_primario for e in banco if e.eq_primario and e.eq_primario != "Sem equipamento"})
+todos_musculos: list[str] = []
+_m_set: set[str] = set()
+for _e in banco:
+    if _e.musculo_primario:
+        for _m in _e.musculo_primario.split(","):
+            _ms = _m.strip().lower()
+            if _ms and _ms not in _m_set:
+                _m_set.add(_ms)
+                todos_musculos.append(_ms)
+todos_musculos = sorted(todos_musculos)
+
 PADROES_LABELS = {
-    "horizontal_push": "Horizontal Push",
-    "horizontal_pull": "Horizontal Pull",
-    "vertical_push":   "Vertical Push",
-    "vertical_pull":   "Vertical Pull",
-    "squat":           "Squat",
-    "hinge":           "Hinge",
+    # Membros inferiores
+    "squat":           "Agachamento",
+    "hinge":           "Extensão de quadril",
+    "knee_flexion":    "Flexão de joelho",
     "abduction":       "Abdução",
     "adduction":       "Adução",
+    "flexao_plantar":  "Flexão plantar",
+    # Membros superiores
+    "empurrar_compostos": "Empurrar compostos",
+    "empurrar_isolados":  "Empurrar isolados",
+    "remadas":            "Remadas",
+    "puxadas":            "Puxadas",
+    "ombro_composto":      "Desenvolvimento",
+    "ombro_isolado":       "Elevações",
+    "posterior_ombro":     "Posterior de ombro",
+    "biceps":             "Bíceps",
+    "triceps":            "Tríceps",
+    # Outros
+    "core_isometrico": "Core isométrico",
+    "core_dinamico":   "Core dinâmico",
+    "cardio":          "Cardio",
+}
+
+# Hierarquia para UI expansível
+REGIOES_LABELS = {
+    "upper":  "Membros superiores",
+    "lower":  "Membros inferiores",
+    "core":   "Core",
+    "cardio": "Cardio",
+}
+
+SUBREGIOES_LABELS = {
+    "peito":           "Peito",
+    "costas":          "Costas",
+    "ombro":           "Ombro",
+    "bracos":          "Braços",
+    "perna_anterior":  "Perna anterior",
+    "perna_posterior": "Perna posterior",
+    "adutores":        "Adutores",
+    "panturrilha":     "Panturrilha",
     "core":            "Core",
-    "biceps":          "Bíceps",
-    "triceps":         "Tríceps",
-    "flexao_plantar":  "Flexão Plantar",
     "cardio":          "Cardio",
 }
 
@@ -129,16 +283,37 @@ PADROES_LABELS = {
 # ---------------------------------------------------------------------------
 
 if "sessoes"        not in st.session_state: st.session_state.sessoes        = []
+if "configs_geradas" not in st.session_state: st.session_state.configs_geradas = []
 if "sub_alvo"       not in st.session_state: st.session_state.sub_alvo       = []
 if "candidatos"     not in st.session_state: st.session_state.candidatos     = []
 if "modo_viz"       not in st.session_state: st.session_state.modo_viz       = []
 if "config_aberta"  not in st.session_state: st.session_state.config_aberta  = True
 if "edit_aluno_idx" not in st.session_state: st.session_state.edit_aluno_idx = None
-# painel "adicionar exercício": chave = (t, bloco_idx), valor = lista de candidatos
 if "add_ex_alvo"    not in st.session_state: st.session_state.add_ex_alvo    = {}
 if "add_ex_cands"   not in st.session_state: st.session_state.add_ex_cands   = {}
-# painel "novo bloco": chave = t, valor = lista de candidatos
 if "novo_bloco_cands" not in st.session_state: st.session_state.novo_bloco_cands = {}
+# mover exercício entre blocos: chave = (t, i, idx), valor = True se painel aberto
+if "mover_ex_alvo"  not in st.session_state: st.session_state.mover_ex_alvo  = {}
+
+# Restaura treino APENAS em caso de reconexão/timeout (não em abertura nova)
+# A flag "ja_iniciou" distingue: se existe = mesma sessão do browser; se não = abertura nova
+if "ja_iniciou" not in st.session_state:
+    # Abertura nova — não restaura nada, mostra tela inicial limpa
+    st.session_state.ja_iniciou = True
+elif not st.session_state.sessoes:
+    # Reconexão após timeout na mesma sessão — restaura o último estado
+    sessoes_restauradas = carregar_sessoes_salvas()
+    if sessoes_restauradas:
+        n = len(sessoes_restauradas)
+        st.session_state.sessoes    = sessoes_restauradas
+        st.session_state.sub_alvo   = [None] * n
+        st.session_state.candidatos = [[] for _ in range(n)]
+        st.session_state.modo_viz   = ["visualizar"] * n
+
+def _salvar_e_rerun():
+    """Persiste o estado atual das sessões e reinicia o script."""
+    salvar_sessoes(st.session_state.sessoes)
+    st.rerun()
 
 # ---------------------------------------------------------------------------
 # Helpers visuais
@@ -175,10 +350,12 @@ def filtrar_banco(
     padrao: str = None,
     purpose: str = None,
     unilateral: str = None,
+    equipamento: str = None,
+    musculo: str = None,
     max_cx: int = 5,
 ) -> list:
     """Filtra o banco — busca por nome é case-insensitive e ignora acentos.
-    Passar None (ou '(qualquer)') em padrao/purpose/unilateral = sem filtro."""
+    Passar None ou '(qualquer)' em qualquer filtro = sem filtro."""
     resultado = list(banco)
     if padrao and padrao != "(qualquer)":
         resultado = [e for e in resultado if e.padrao == padrao]
@@ -186,6 +363,12 @@ def filtrar_banco(
         resultado = [e for e in resultado if e.purpose == purpose]
     if unilateral and unilateral != "(qualquer)":
         resultado = [e for e in resultado if e.unilateral == unilateral]
+    if equipamento and equipamento != "(qualquer)":
+        resultado = [e for e in resultado if e.eq_primario == equipamento or e.eq_secundario == equipamento]
+    if musculo and musculo != "(qualquer)":
+        m_norm = _normalizar(musculo)
+        resultado = [e for e in resultado
+                     if e.musculo_primario and m_norm in _normalizar(e.musculo_primario)]
     resultado = [e for e in resultado if e.complexidade <= max_cx]
     if texto.strip():
         txt_norm = _normalizar(texto.strip())
@@ -228,14 +411,14 @@ def render_editar(sessao: Sessao, t: int, max_cx: int):
                 bl[i], bl[i-1] = bl[i-1], bl[i]
                 for j, b in enumerate(bl): b.label = labels[j]
                 st.session_state.sessoes[t].blocos = bl
-                st.rerun()
+                _salvar_e_rerun()
         with col_dn:
             if i < n_blocos - 1 and st.button("↓", key=f"dn_{t}_{i}"):
                 bl = sessao.blocos[:]
                 bl[i], bl[i+1] = bl[i+1], bl[i]
                 for j, b in enumerate(bl): b.label = labels[j]
                 st.session_state.sessoes[t].blocos = bl
-                st.rerun()
+                _salvar_e_rerun()
         with col_del_bloco:
             if st.button("🗑", key=f"del_bloco_{t}_{i}", help="Remover bloco"):
                 bl = sessao.blocos[:]
@@ -244,7 +427,7 @@ def render_editar(sessao: Sessao, t: int, max_cx: int):
                 st.session_state.sessoes[t].blocos = bl
                 st.session_state.add_ex_alvo.pop((t, i), None)
                 st.session_state.add_ex_cands.pop((t, i), None)
-                st.rerun()
+                _salvar_e_rerun()
 
         # Exercícios do bloco
         for idx, ex in enumerate(exs, 1):
@@ -253,7 +436,7 @@ def render_editar(sessao: Sessao, t: int, max_cx: int):
             pk  = f"p_{t}_{bloco.label}_{idx}"
             sub_key = f"{t}_{i}_{idx}"
 
-            col_ex, col_sub, col_rm = st.columns([14, 1, 1])
+            col_ex, col_sub, col_mv, col_rm = st.columns([13, 1, 1, 1])
             with col_ex:
                 st.markdown(
                     f"<p style='margin:0;font-size:13px;line-height:1.6'>"
@@ -272,6 +455,19 @@ def render_editar(sessao: Sessao, t: int, max_cx: int):
                     else:
                         st.session_state.sub_alvo[t] = sub_key
                         st.session_state.candidatos[t] = []
+                        st.session_state.add_ex_alvo.pop((t, i), None)
+                        st.session_state.mover_ex_alvo.pop((t, i, idx), None)
+                    st.rerun()
+            with col_mv:
+                mv_aberto = st.session_state.mover_ex_alvo.get((t, i, idx), False)
+                if st.button("✕" if mv_aberto else "↗",
+                             key=f"mv_btn_{t}_{i}_{idx}",
+                             help="Fechar" if mv_aberto else "Mover para outro bloco"):
+                    if mv_aberto:
+                        st.session_state.mover_ex_alvo.pop((t, i, idx), None)
+                    else:
+                        st.session_state.mover_ex_alvo[(t, i, idx)] = True
+                        st.session_state.sub_alvo[t] = None
                         st.session_state.add_ex_alvo.pop((t, i), None)
                     st.rerun()
             with col_rm:
@@ -292,7 +488,7 @@ def render_editar(sessao: Sessao, t: int, max_cx: int):
                         bl.pop(i)
                         for j, b in enumerate(bl): b.label = labels[j]
                         st.session_state.sessoes[t].blocos = bl
-                    st.rerun()
+                    _salvar_e_rerun()
 
             # Prescrição em linha
             pc0, pc1, pc2, pc3, pc4 = st.columns([3, 2, 3, 2, 2])
@@ -320,11 +516,15 @@ def render_editar(sessao: Sessao, t: int, max_cx: int):
                         if ri == 0: target.ex1 = slot[0]
                         elif ri == 1: target.ex2 = slot[1]
                         else: target.ex3 = slot[2]
-                    st.rerun()
+                    _salvar_e_rerun()
 
             # Painel substituição INLINE — logo abaixo do exercício
             if st.session_state.sub_alvo[t] == sub_key:
                 _render_painel_substituicao_inline(t, i, idx, ex, sessao, max_cx)
+
+            # Painel mover — logo abaixo do exercício
+            if st.session_state.mover_ex_alvo.get((t, i, idx), False):
+                _render_painel_mover(t, i, idx, ex, sessao)
 
         # Botão "+ Exercício"
         if n_exs < 3:
@@ -339,7 +539,7 @@ def render_editar(sessao: Sessao, t: int, max_cx: int):
                     st.session_state.add_ex_alvo[add_key] = True
                     st.session_state.add_ex_cands[add_key] = []
                     st.session_state.sub_alvo[t] = None
-                st.rerun()
+                _salvar_e_rerun()
 
             if painel_aberto:
                 _render_painel_adicionar(t, i, bloco, max_cx)
@@ -355,7 +555,7 @@ def render_editar(sessao: Sessao, t: int, max_cx: int):
         else:
             st.session_state.novo_bloco_cands[t] = []
             st.session_state.sub_alvo[t] = None
-        st.rerun()
+        _salvar_e_rerun()
 
     if novo_aberto:
         _render_painel_novo_bloco(t, sessao, max_cx)
@@ -391,6 +591,15 @@ def _render_painel_substituicao_inline(t: int, i: int, idx: int, ex, sessao: Ses
 
     f_ign = st.checkbox("Ignorar similaridade já usada", value=True, key=f"f_ign_{sub_key}")
 
+    # Linha 2: equipamento e músculo
+    fs4, fs5 = st.columns(2)
+    with fs4:
+        f_eq = st.selectbox("Equipamento", ["(qualquer)"] + todos_equipamentos,
+            key=f"f_eq_{sub_key}")
+    with fs5:
+        f_musc = st.selectbox("Músculo", ["(qualquer)"] + todos_musculos,
+            key=f"f_musc_{sub_key}")
+
     # Nomes e similaridades em uso na sessão (excluindo o exercício alvo)
     nomes_em_uso = {
         e.nome for bloco in sessao.blocos
@@ -406,6 +615,8 @@ def _render_painel_substituicao_inline(t: int, i: int, idx: int, ex, sessao: Ses
         padrao=None if f_pad == "(qualquer)" else f_pad,
         purpose=None if f_pur == "(qualquer)" else f_pur,
         unilateral=None if f_uni == "(qualquer)" else f_uni,
+        equipamento=None if f_eq == "(qualquer)" else f_eq,
+        musculo=None if f_musc == "(qualquer)" else f_musc,
         max_cx=max_cx,
     )
     cands = [e for e in cands if e.nome not in nomes_em_uso and e.nome != ex.nome]
@@ -420,7 +631,7 @@ def _render_painel_substituicao_inline(t: int, i: int, idx: int, ex, sessao: Ses
                 sessao, ex.nome, banco, max_complexidade=max_cx)
             st.session_state.sub_alvo[t] = None
             st.session_state.candidatos[t] = []
-            st.rerun()
+            _salvar_e_rerun()
     with cb2:
         st.caption(f"{len(cands)} exercício(s)")
 
@@ -433,9 +644,73 @@ def _render_painel_substituicao_inline(t: int, i: int, idx: int, ex, sessao: Ses
             st.session_state.sessoes[t] = substituir_exercicio_por(sessao, ex.nome, escolha_nome, banco)
             st.session_state.sub_alvo[t] = None
             st.session_state.candidatos[t] = []
-            st.rerun()
-    elif txt or f_pad != "(qualquer)" or f_pur != "(qualquer)" or f_uni != "(qualquer)":
+            _salvar_e_rerun()
+    elif txt or f_pad != "(qualquer)" or f_pur != "(qualquer)" or f_uni != "(qualquer)" \
+            or f_eq != "(qualquer)" or f_musc != "(qualquer)":
         st.caption("Nenhum exercício encontrado com esses filtros.")
+
+
+def _render_painel_mover(t: int, i: int, idx: int, ex, sessao: Sessao):
+    """Painel para mover um exercício para outro bloco."""
+    blocos_destino = [
+        b for j, b in enumerate(sessao.blocos)
+        if j != i and len([e for e in [b.ex1, b.ex2, b.ex3] if e]) < 3
+    ]
+
+    st.markdown(
+        f"<div style='background:#f5f3ff;border:1px solid #c4b5fd;border-radius:10px;"
+        f"padding:10px 14px;margin:4px 0 6px 0'>"
+        f"<p style='font-size:12px;font-weight:700;color:#5b21b6;margin:0 0 6px 0'>"
+        f"↗ Mover: {ex.nome}</p></div>",
+        unsafe_allow_html=True,
+    )
+
+    if not blocos_destino:
+        st.caption("Todos os outros blocos já têm 3 exercícios.")
+        return
+
+    labels_destino = [b.label for b in blocos_destino]
+    col_sel, col_ok = st.columns([3, 1])
+    with col_sel:
+        destino_label = st.selectbox(
+            "Mover para bloco", labels_destino,
+            key=f"mv_dest_{t}_{i}_{idx}",
+            format_func=lambda x: f"Bloco {x}",
+            label_visibility="collapsed",
+        )
+    with col_ok:
+        if st.button("✅ Mover", key=f"mv_ok_{t}_{i}_{idx}", type="primary", use_container_width=True):
+            # Remove do bloco origem
+            target_orig = st.session_state.sessoes[t].blocos[i]
+            ri = idx - 1
+            if ri == 0:
+                target_orig.ex1 = target_orig.ex2
+                target_orig.ex2 = target_orig.ex3
+                target_orig.ex3 = None
+            elif ri == 1:
+                target_orig.ex2 = target_orig.ex3
+                target_orig.ex3 = None
+            else:
+                target_orig.ex3 = None
+
+            # Remove bloco se ficou vazio
+            labels = "ABCDEFGHIJKLMNOP"
+            if not any([target_orig.ex1, target_orig.ex2, target_orig.ex3]):
+                bl = st.session_state.sessoes[t].blocos[:]
+                bl.pop(i)
+                for j, b in enumerate(bl): b.label = labels[j]
+                st.session_state.sessoes[t].blocos = bl
+
+            # Insere no bloco destino
+            for bloco_d in st.session_state.sessoes[t].blocos:
+                if bloco_d.label == destino_label:
+                    if bloco_d.ex1 is None: bloco_d.ex1 = ex
+                    elif bloco_d.ex2 is None: bloco_d.ex2 = ex
+                    elif bloco_d.ex3 is None: bloco_d.ex3 = ex
+                    break
+
+            st.session_state.mover_ex_alvo.pop((t, i, idx), None)
+            _salvar_e_rerun()
 
 
 def _render_painel_adicionar(t: int, i: int, bloco: SuperSerie, max_cx: int):
@@ -466,19 +741,26 @@ def _render_painel_adicionar(t: int, i: int, bloco: SuperSerie, max_cx: int):
         uni = st.selectbox("Lateralidade", ["(qualquer)", "bilateral", "unilateral"],
             key=f"add_uni_{t}_{i}")
 
-    cands = filtrar_banco(texto=txt, padrao=pad, purpose=pur, unilateral=uni, max_cx=max_cx)
+    fa5, fa6 = st.columns(2)
+    with fa5:
+        eq_f = st.selectbox("Equipamento", ["(qualquer)"] + todos_equipamentos, key=f"add_eq_{t}_{i}")
+    with fa6:
+        musc_f = st.selectbox("Músculo", ["(qualquer)"] + todos_musculos, key=f"add_musc_{t}_{i}")
+
+    cands = filtrar_banco(texto=txt, padrao=pad, purpose=pur, unilateral=uni,
+                          equipamento=None if eq_f == "(qualquer)" else eq_f,
+                          musculo=None if musc_f == "(qualquer)" else musc_f,
+                          max_cx=max_cx)
     cands = [e for e in cands if e.nome not in nomes_em_uso]
 
     ab1, ab2 = st.columns(2)
     with ab1:
-        if st.button("🎲 Aleatório", key=f"add_alea_{t}_{i}", use_container_width=True,
-                     help="Adiciona exercício aleatório com os filtros aplicados"):
+        if st.button("🎲 Aleatório", key=f"add_alea_{t}_{i}", use_container_width=True):
             if cands:
-                novo_ex = random.choice(cands)
-                _aplicar_adicionar(t, i, novo_ex)
-            st.rerun()
+                _aplicar_adicionar(t, i, random.choice(cands))
+            _salvar_e_rerun()
     with ab2:
-        st.caption(f"{len(cands)} exercício(s) encontrado(s)")
+        st.caption(f"{len(cands)} exercício(s)")
 
     if cands:
         nomes_c = [f"{e.nome}  [{e.purpose} · {e.eq_primario}]" for e in cands[:50]]
@@ -488,8 +770,9 @@ def _render_painel_adicionar(t: int, i: int, bloco: SuperSerie, max_cx: int):
             novo_ex = next((e for e in cands if e.nome == escolha_nome), None)
             if novo_ex:
                 _aplicar_adicionar(t, i, novo_ex)
-            st.rerun()
-    elif txt or pad != "(qualquer)" or pur != "(qualquer)" or uni != "(qualquer)":
+            _salvar_e_rerun()
+    elif txt or pad != "(qualquer)" or pur != "(qualquer)" or uni != "(qualquer)" \
+            or eq_f != "(qualquer)" or musc_f != "(qualquer)":
         st.caption("Nenhum exercício encontrado com esses filtros.")
 
 
@@ -510,8 +793,7 @@ def _aplicar_adicionar(t: int, i: int, novo_ex):
 def _render_painel_novo_bloco(t: int, sessao: Sessao, max_cx: int):
     """Painel para criar um novo bloco do zero."""
     nomes_em_uso = {
-        ex.nome
-        for bloco in sessao.blocos
+        ex.nome for bloco in sessao.blocos
         for ex in [bloco.ex1, bloco.ex2, bloco.ex3] if ex
     }
 
@@ -537,19 +819,26 @@ def _render_painel_novo_bloco(t: int, sessao: Sessao, max_cx: int):
         uni = st.selectbox("Lateralidade", ["(qualquer)", "bilateral", "unilateral"],
             key=f"nb_uni_{t}")
 
-    cands = filtrar_banco(texto=txt, padrao=pad, purpose=pur, unilateral=uni, max_cx=max_cx)
+    fn5, fn6 = st.columns(2)
+    with fn5:
+        eq_f = st.selectbox("Equipamento", ["(qualquer)"] + todos_equipamentos, key=f"nb_eq_{t}")
+    with fn6:
+        musc_f = st.selectbox("Músculo", ["(qualquer)"] + todos_musculos, key=f"nb_musc_{t}")
+
+    cands = filtrar_banco(texto=txt, padrao=pad, purpose=pur, unilateral=uni,
+                          equipamento=None if eq_f == "(qualquer)" else eq_f,
+                          musculo=None if musc_f == "(qualquer)" else musc_f,
+                          max_cx=max_cx)
     cands = [e for e in cands if e.nome not in nomes_em_uso]
 
     nb1, nb2 = st.columns(2)
     with nb1:
-        if st.button("🎲 Bloco aleatório", key=f"nb_alea_{t}", use_container_width=True,
-                     help="Cria bloco com 1 exercício aleatório dos filtros aplicados"):
+        if st.button("🎲 Bloco aleatório", key=f"nb_alea_{t}", use_container_width=True):
             if cands:
-                novo_ex = random.choice(cands)
-                _aplicar_novo_bloco(t, sessao, novo_ex)
-            st.rerun()
+                _aplicar_novo_bloco(t, sessao, random.choice(cands))
+            _salvar_e_rerun()
     with nb2:
-        st.caption(f"{len(cands)} exercício(s) encontrado(s)")
+        st.caption(f"{len(cands)} exercício(s)")
 
     if cands:
         nomes_c = [f"{e.nome}  [{e.purpose} · {e.eq_primario}]" for e in cands[:50]]
@@ -559,8 +848,9 @@ def _render_painel_novo_bloco(t: int, sessao: Sessao, max_cx: int):
             novo_ex = next((e for e in cands if e.nome == escolha_nome), None)
             if novo_ex:
                 _aplicar_novo_bloco(t, sessao, novo_ex)
-            st.rerun()
-    elif txt or pad != "(qualquer)" or pur != "(qualquer)" or uni != "(qualquer)":
+            _salvar_e_rerun()
+    elif txt or pad != "(qualquer)" or pur != "(qualquer)" or uni != "(qualquer)" \
+            or eq_f != "(qualquer)" or musc_f != "(qualquer)":
         st.caption("Nenhum exercício encontrado com esses filtros.")
 
 
@@ -578,14 +868,53 @@ def _aplicar_novo_bloco(t: int, sessao: Sessao, novo_ex):
 # Config UI de um treino — retorna dict
 # ---------------------------------------------------------------------------
 
+# Ordem de exibição das regiões na UI (top-down)
+ORDEM_REGIOES = ["upper", "lower", "core", "cardio"]
+
+# Ordem de exibição das subregiões dentro de cada região
+ORDEM_SUBREGIOES = {
+    "upper":  ["peito", "costas", "ombro", "bracos"],
+    "lower":  ["perna_anterior", "perna_posterior", "adutores", "panturrilha"],
+    "core":   ["core"],
+    "cardio": ["cardio"],
+}
+
+# Ordem de exibição dos padrões dentro de cada subregião
+ORDEM_PADROES = {
+    "peito":           ["empurrar_compostos", "empurrar_isolados"],
+    "costas":          ["remadas", "puxadas"],
+    "ombro":           ["ombro_composto", "ombro_isolado", "posterior_ombro"],
+    "bracos":          ["biceps", "triceps"],
+    "perna_anterior":  ["squat"],
+    "perna_posterior": ["hinge", "knee_flexion", "abduction"],
+    "adutores":        ["adduction"],
+    "panturrilha":     ["flexao_plantar"],
+    "core":            ["core_isometrico", "core_dinamico"],
+    "cardio":          ["cardio"],
+}
+
+
 def ui_config_treino(t: int) -> dict:
+    """
+    UI hierárquica expansível.
+    Comportamento A: marcar pai = atalho. Se filhos específicos forem marcados,
+    apenas eles valem para aquela subárvore. Caso contrário, o pai expande
+    para todos os filhos.
+
+    Mistura livre: pode-se marcar 'Membros superiores' inteiro + apenas
+    'Hinge' nas pernas, e o app entende.
+
+    Retorna dict com:
+      - padroes: lista plana expandida (compatível com código existente)
+      - exercicios_por_padrao: dict padrão→qtd (sliders)
+    """
     modo = st.radio(
-        "Modo", ["Categorias", "Template"],
+        "Modo", ["Hierarquia", "Template"],
         key=f"modo_{t}", horizontal=True, label_visibility="collapsed",
     )
 
-    padroes_sel = []
-    epp = {}
+    padroes_sel: list[str] = []
+    epp: dict = {}
 
     if modo == "Template":
         tmpl = st.selectbox("Template", list(TEMPLATES.keys()), key=f"tmpl_{t}")
@@ -603,34 +932,233 @@ def ui_config_treino(t: int) -> dict:
         padroes_sel = [p for p in padroes_tmpl if epp.get(p, 0) > 0]
 
     else:
-        padroes_disp = [p for p in PADROES_LABELS if p in todos_padroes]
+        # ── Modo Hierarquia (Região → Subregião → Padrão) ─────────────────
+        # Cada checkbox marcado vira UMA demanda com seu próprio slider de
+        # quantidade. Comportamento A continua: se filhos específicos são
+        # marcados, eles substituem o pai dentro daquele ramo.
         st.markdown(
             "<p style='font-size:11px;color:#6b7280;text-transform:uppercase;"
-            "letter-spacing:0.07em;margin:8px 0 4px 0'>Categorias</p>",
+            "letter-spacing:0.07em;margin:8px 0 6px 0'>Selecionar grupos</p>"
+            "<p style='font-size:11px;color:#9ca3af;margin:0 0 8px 0'>"
+            "Marque um grupo (em qualquer nível) e defina quantos exercícios "
+            "quer dele. Expanda para refinar.</p>",
             unsafe_allow_html=True,
         )
-        col_a, col_b, col_c = st.columns(3)
-        cols3 = [col_a, col_b, col_c]
-        sel_raw = []
-        for ci, p in enumerate(padroes_disp):
-            with cols3[ci % 3]:
-                if st.checkbox(PADROES_LABELS[p], key=f"chk_{t}_{p}"):
-                    sel_raw.append(p)
 
-        if sel_raw:
+        # Listas de itens marcados, separados por nível
+        regioes_marcadas: list[str] = []
+        subs_marcadas_por_regiao: dict[str, list[str]] = {}
+        pads_marcados_por_subregiao: dict[str, list[str]] = {}
+
+        for regiao in ORDEM_REGIOES:
+            if regiao not in REGIAO_PARA_SUBREGIOES:
+                continue
+            regiao_lbl = REGIOES_LABELS.get(regiao, regiao)
+
+            col_chk, col_exp = st.columns([1, 4])
+            with col_chk:
+                marcado_regiao = st.checkbox(
+                    regiao_lbl, key=f"reg_{t}_{regiao}",
+                )
+            with col_exp:
+                expandido_regiao = st.toggle(
+                    "refinar", key=f"reg_exp_{t}_{regiao}",
+                    label_visibility="collapsed",
+                    help=f"Expandir {regiao_lbl} para escolher subregiões/padrões",
+                )
+
+            if marcado_regiao:
+                regioes_marcadas.append(regiao)
+
+            if expandido_regiao:
+                subs_aqui: list[str] = []
+                for subregiao in ORDEM_SUBREGIOES.get(regiao, []):
+                    sub_lbl = SUBREGIOES_LABELS.get(subregiao, subregiao)
+                    cs_chk, cs_exp = st.columns([1, 4])
+                    with cs_chk:
+                        marcado_sub = st.checkbox(
+                            f"  └ {sub_lbl}", key=f"sub_{t}_{subregiao}",
+                        )
+                    with cs_exp:
+                        padroes_da_sub = ORDEM_PADROES.get(subregiao, [])
+                        expandido_sub = False
+                        if len(padroes_da_sub) > 1:
+                            expandido_sub = st.toggle(
+                                "refinar", key=f"sub_exp_{t}_{subregiao}",
+                                label_visibility="collapsed",
+                                help=f"Expandir {sub_lbl} para escolher padrões",
+                            )
+
+                    if marcado_sub:
+                        subs_aqui.append(subregiao)
+
+                    if expandido_sub:
+                        pads_aqui: list[str] = []
+                        for padrao in padroes_da_sub:
+                            pad_lbl = PADROES_LABELS.get(padrao, padrao)
+                            marcado_pad = st.checkbox(
+                                f"      └ {pad_lbl}", key=f"pad_{t}_{padrao}",
+                            )
+                            if marcado_pad:
+                                pads_aqui.append(padrao)
+                        pads_marcados_por_subregiao[subregiao] = pads_aqui
+
+                subs_marcadas_por_regiao[regiao] = subs_aqui
+
+        # ── Resolver Comportamento A e montar lista de demandas ───────────
+        # Demanda = (nivel, escopo, qtd). Para cada item marcado, cria 1.
+        # Regra A: se um pai tem filhos específicos marcados (ou netos via
+        # subregião), o pai NÃO vira demanda — apenas os filhos.
+        demandas_def: list[tuple[str, str]] = []  # (nivel, escopo) na ordem da UI
+
+        # Padrões individuais marcados → sempre viram demandas
+        for sub, pads in pads_marcados_por_subregiao.items():
+            for p in pads:
+                demandas_def.append(("padrao", p))
+
+        # Subregiões marcadas: vira demanda só se NÃO houver padrões
+        # específicos marcados dentro dela
+        for regiao, subs in subs_marcadas_por_regiao.items():
+            for sub in subs:
+                if not pads_marcados_por_subregiao.get(sub):
+                    demandas_def.append(("subregiao", sub))
+
+        # Regiões marcadas: vira demanda só se NÃO houver subregiões nem
+        # padrões específicos marcados dentro dela
+        for regiao in regioes_marcadas:
+            tem_subs   = bool(subs_marcadas_por_regiao.get(regiao))
+            tem_pads   = any(
+                pads_marcados_por_subregiao.get(s)
+                for s in ORDEM_SUBREGIOES.get(regiao, [])
+            )
+            if not tem_subs and not tem_pads:
+                demandas_def.append(("regiao", regiao))
+
+        # ── Sliders: 1 por demanda ────────────────────────────────────────
+        demandas: list[tuple[str, str, int]] = []
+        if demandas_def:
             st.markdown(
                 "<p style='font-size:11px;color:#6b7280;text-transform:uppercase;"
-                "letter-spacing:0.07em;margin:10px 0 4px 0'>Exercícios por categoria</p>",
+                "letter-spacing:0.07em;margin:14px 0 4px 0'>"
+                "Quantos exercícios de cada grupo</p>",
                 unsafe_allow_html=True,
             )
-            cols_sl = st.columns(min(len(sel_raw), 4))
-            for ci, p in enumerate(sel_raw):
+            cols_sl = st.columns(min(len(demandas_def), 3))
+            for ci, (nivel, escopo) in enumerate(demandas_def):
+                if nivel == "regiao":
+                    label = REGIOES_LABELS.get(escopo, escopo)
+                    default = 6
+                elif nivel == "subregiao":
+                    label = SUBREGIOES_LABELS.get(escopo, escopo)
+                    default = 2
+                else:
+                    label = PADROES_LABELS.get(escopo, escopo)
+                    default = 1
                 with cols_sl[ci % len(cols_sl)]:
-                    epp[p] = st.slider(PADROES_LABELS.get(p, p), 0, 5, 1, key=f"epp_{t}_{p}")
-            padroes_sel = [p for p in sel_raw if epp.get(p, 0) > 0]
+                    qtd = st.slider(
+                        label, 0, 12, default,
+                        key=f"qtd_{t}_{nivel}_{escopo}",
+                    )
+                if qtd > 0:
+                    demandas.append((nivel, escopo, qtd))
 
-    return {"padroes": padroes_sel, "exercicios_por_padrao": epp}
+        # Marcador para o resto do código saber que estamos em modo demandas
+        epp = {}                # não usado nesse modo
+        padroes_sel = []        # mantido vazio — quem dirige é demandas
 
+    # ── Exercícios fixos ──────────────────────────────────────────────────
+    st.markdown("<hr class='thin-hr' style='margin:14px 0'>", unsafe_allow_html=True)
+
+    fixos_key = f"fixos_{t}"
+    st.session_state.setdefault(fixos_key, [])
+    fixos: list[str] = st.session_state[fixos_key]
+
+    with st.expander(f"📌 Exercícios fixos ({len(fixos)}/3)", expanded=bool(fixos)):
+
+        # Lista de exercícios já fixados
+        for fi, nome_fixo in enumerate(fixos):
+            ex_fixo = next((e for e in banco if e.nome == nome_fixo), None)
+            col_fixo, col_rm_fixo = st.columns([11, 1])
+            with col_fixo:
+                if ex_fixo:
+                    st.markdown(
+                        f"<p style='margin:2px 0;font-size:13px;line-height:1.6'>"
+                        f"📌 <b>{ex_fixo.nome}</b> "
+                        f"<span style='color:#9ca3af;font-size:11px'>"
+                        f"{ex_fixo.purpose} · {ex_fixo.padrao} · 🔧 {ex_fixo.eq_primario}</span></p>",
+                        unsafe_allow_html=True,
+                    )
+            with col_rm_fixo:
+                if st.button("✕", key=f"rm_fixo_{t}_{fi}", help="Remover"):
+                    fixos.pop(fi)
+                    st.session_state[fixos_key] = fixos
+                    st.rerun()
+
+        if len(fixos) < 3:
+            if fixos:
+                st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+
+            nomes_fixos = set(fixos)
+            busca_fixo = st.text_input(
+                "Buscar exercício",
+                key=f"busca_fixo_{t}",
+                placeholder="Digite o nome para filtrar...",
+                label_visibility="collapsed",
+            )
+
+            if busca_fixo.strip():
+                cands_fixo = filtrar_banco(texto=busca_fixo, max_cx=5)
+                cands_fixo = [e for e in cands_fixo if e.nome not in nomes_fixos]
+
+                if cands_fixo:
+                    nomes_c = [f"{e.nome}  [{e.purpose} · {e.padrao}]" for e in cands_fixo[:30]]
+                    escolha_fixo = st.radio(
+                        "Resultado",
+                        nomes_c,
+                        key=f"radio_fixo_{t}",
+                        label_visibility="collapsed",
+                    )
+                    if st.button("📌 Fixar", key=f"add_fixo_{t}", type="primary"):
+                        nome_esc = escolha_fixo.split("  [")[0]
+                        if nome_esc not in nomes_fixos:
+                            fixos.append(nome_esc)
+                            st.session_state[fixos_key] = fixos
+                            if f"busca_fixo_{t}" in st.session_state:
+                                del st.session_state[f"busca_fixo_{t}"]
+                        st.rerun()
+                else:
+                    st.caption("Nenhum exercício encontrado.")
+        else:
+            st.caption("Máximo de 3 exercícios fixos atingido.")
+
+    # Modo Template não usa demandas
+    if modo == "Template":
+        demandas = []
+
+    exercicios_travados = [e for e in banco if e.nome in set(fixos)]
+    return {
+        "padroes": padroes_sel,
+        "exercicios_por_padrao": epp,
+        "demandas": demandas,
+        "exercicios_travados": exercicios_travados,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Reset guard — executa ANTES de qualquer widget ser renderizado
+# ---------------------------------------------------------------------------
+if st.session_state.get("_do_reset", False):
+    del st.session_state["_do_reset"]
+    for k in list(st.session_state.keys()):
+        if k.startswith(("reg_", "sub_", "pad_", "chk_", "grp_")):
+            # Inclui reg_exp_ e sub_exp_ (toggles de expansão)
+            st.session_state[k] = False
+        elif k.startswith("fixos_"):
+            st.session_state[k] = []
+        elif k.startswith(("epp_", "qtd_", "tmpl_", "busca_fixo_", "radio_fixo_")) or \
+             (k.startswith("modo_") and k[5:].isdigit()) or \
+             k in ("n_treinos", "tamanho_bloco", "max_cx", "variar_entre", "evitar_agonistas", "aluno_exp"):
+            del st.session_state[k]
 
 # ===========================================================================
 # LAYOUT
@@ -645,7 +1173,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-tab_treino, tab_alunos = st.tabs(["🏋️ Treinos", "👥 Alunos"])
+tab_treino, tab_alunos, tab_historico = st.tabs(["🏋️ Treinos", "👥 Alunos", "📋 Histórico"])
 
 # ===========================================================================
 # TAB TREINOS
@@ -667,7 +1195,7 @@ with tab_treino:
 
         # Configurações gerais
         st.markdown("<p class='config-title'>Configurações gerais</p>", unsafe_allow_html=True)
-        cg1, cg2, cg3, cg4, cg5 = st.columns([2, 2, 2, 3, 3])
+        cg1, cg2, cg3, cg4, cg4b, cg5 = st.columns([2, 2, 2, 3, 3, 3])
         with cg1:
             n_treinos = st.number_input("Nº de treinos", 1, 5, 1, key="n_treinos")
         with cg2:
@@ -679,6 +1207,12 @@ with tab_treino:
                 "Evitar similaridade entre treinos", value=False, key="variar_entre",
                 help="Evita repetir grupos de similaridade entre treinos",
             )
+        with cg4b:
+            evitar_agon = st.checkbox(
+                "Evitar agonistas no bloco", value=True, key="evitar_agonistas",
+                help="Evita parear exercícios do mesmo grupo muscular (push+push ou pull+pull). "
+                     "Favorece pares antagonistas: costas+peito, bíceps+tríceps.",
+            )
         with cg5:
             aluno_exp = st.selectbox("Aluno (PNG)", nomes_alunos, key="aluno_exp")
 
@@ -689,33 +1223,46 @@ with tab_treino:
         if n == 1:
             st.markdown("<p class='config-title'>Treino 1</p>", unsafe_allow_html=True)
             cfg = ui_config_treino(0)
-            cfg.update({"max_complexidade": max_cx, "tamanho_bloco": tamanho_bloco, "equipamentos_bloqueados": []})
+            cfg.update({"max_complexidade": max_cx, "tamanho_bloco": tamanho_bloco, "equipamentos_bloqueados": [], "evitar_agonistas": evitar_agon})
             configs_ui.append(cfg)
         else:
             tabs_cfg = st.tabs([f"Treino {i+1}" for i in range(n)])
             for i, tab_c in enumerate(tabs_cfg):
                 with tab_c:
                     cfg = ui_config_treino(i)
-                    cfg.update({"max_complexidade": max_cx, "tamanho_bloco": tamanho_bloco, "equipamentos_bloqueados": []})
+                    cfg.update({"max_complexidade": max_cx, "tamanho_bloco": tamanho_bloco, "equipamentos_bloqueados": [], "evitar_agonistas": evitar_agon})
                     configs_ui.append(cfg)
 
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # Botão gerar
+        # Botões gerar + resetar
         st.markdown("<div style='margin-top:12px'>", unsafe_allow_html=True)
-        if st.button("▶ Gerar treinos", type="primary", use_container_width=True):
-            vazios = [i+1 for i, c in enumerate(configs_ui) if not c["padroes"]]
+        bc1, bc2 = st.columns([4, 1])
+        with bc1:
+            gerar_clicked = st.button("▶ Gerar treinos", type="primary", use_container_width=True)
+        with bc2:
+            if st.button("↺ Resetar", use_container_width=True, help="Limpa todas as seleções e volta ao padrão"):
+                st.session_state["_do_reset"] = True
+                st.rerun()
+
+        if gerar_clicked:
+            vazios = [
+                i+1 for i, c in enumerate(configs_ui)
+                if not c.get("padroes") and not c.get("demandas")
+            ]
             if vazios:
                 st.warning(f"Selecione ao menos uma categoria no(s) Treino(s) {', '.join(str(x) for x in vazios)}.")
             else:
                 with st.spinner("Gerando..."):
                     sessoes = gerar_multiplos_treinos(banco, configs_ui, variar_entre_treinos=variar)
                 n_sess = len(sessoes)
-                st.session_state.sessoes     = sessoes
-                st.session_state.sub_alvo    = [None] * n_sess
-                st.session_state.candidatos  = [[] for _ in range(n_sess)]
-                st.session_state.modo_viz    = ["visualizar"] * n_sess
-                st.session_state.config_aberta = False
+                st.session_state.sessoes        = sessoes
+                st.session_state.configs_geradas = configs_ui
+                st.session_state.sub_alvo       = [None] * n_sess
+                st.session_state.candidatos     = [[] for _ in range(n_sess)]
+                st.session_state.modo_viz       = ["visualizar"] * n_sess
+                # Não fecha o painel — checkboxes permanecem visíveis
+                salvar_sessoes(sessoes)
                 st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -750,6 +1297,23 @@ with tab_treino:
                 )
                 st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
 
+        # Salvar no histórico
+        with st.expander("💾 Salvar no histórico", expanded=False):
+            ae_hist = st.session_state.get("aluno_exp", "Selecionar aluno...")
+            aluno_hist = ae_hist if ae_hist != "Selecionar aluno..." else ""
+            col_et, col_sv = st.columns([3, 1])
+            with col_et:
+                etiqueta_hist = st.text_input(
+                    "Etiqueta (opcional)",
+                    placeholder="ex: Turma manhã — semana 1",
+                    key="etiqueta_hist",
+                    label_visibility="collapsed",
+                )
+            with col_sv:
+                if st.button("💾 Salvar", key="btn_salvar_hist", use_container_width=True):
+                    adicionar_ao_historico(sessoes, aluno_hist, etiqueta_hist)
+                    st.success("Salvo no histórico!")
+
         result_tabs = st.tabs([f"Treino {i+1}" for i in range(n_sess)]) if n_sess > 1 else [st.container()]
 
         for t, container in enumerate(result_tabs):
@@ -781,28 +1345,68 @@ with tab_treino:
                         )
                 with ca2:
                     if st.button("🔄 Regerar", key=f"regen_{t}", use_container_width=True):
-                        # Tenta usar configs_ui; fallback usa padrões da sessão
-                        if configs_ui and t < len(configs_ui):
-                            cfg_r = configs_ui[t]
+                        # Prioridade 1: config salva no momento da geração
+                        cfgs = st.session_state.get("configs_geradas", [])
+                        if cfgs and t < len(cfgs):
+                            cfg_r = cfgs[t]
                         else:
-                            pats = [p for p in sessao.tipo.split(" + ") if p]
+                            # Fallback: reconstrói EPP contando exercícios reais da sessão
+                            contagem: dict = {}
+                            for bloco in sessao.blocos:
+                                for ex in [bloco.ex1, bloco.ex2, bloco.ex3]:
+                                    if ex and ex.padrao:
+                                        contagem[ex.padrao] = contagem.get(ex.padrao, 0) + 1
+                            pats = list(contagem.keys())
                             cfg_r = {
                                 "padroes": pats,
-                                "exercicios_por_padrao": {p: 1 for p in pats},
+                                "exercicios_por_padrao": contagem,
                                 "max_complexidade": st.session_state.get("max_cx", 5),
                                 "tamanho_bloco": st.session_state.get("tamanho_bloco", 2),
                                 "equipamentos_bloqueados": [],
+                                "exercicios_travados": [],
                             }
-                        nova = gerar_sessao(
-                            banco, cfg_r["padroes"],
-                            exercicios_por_padrao=cfg_r["exercicios_por_padrao"],
-                            equipamentos_bloqueados=cfg_r.get("equipamentos_bloqueados", []),
-                            max_complexidade=cfg_r.get("max_complexidade", 5),
-                            tamanho_bloco=cfg_r.get("tamanho_bloco", 2),
-                        )
+                        # Bloqueia exercícios já presentes nos outros treinos
+                        exs_outros = [
+                            ex
+                            for i, s in enumerate(st.session_state.sessoes)
+                            if i != t
+                            for bloco in s.blocos
+                            for ex in [bloco.ex1, bloco.ex2, bloco.ex3]
+                            if ex
+                        ]
+                        nomes_outros = {ex.nome for ex in exs_outros}
+                        # Bloqueio bidirecional de variações: bloqueia variações dos usados
+                        # e bloqueia o pai quando uma variação foi usada
+                        pais_dos_outros = {ex.variacao_de for ex in exs_outros if ex.variacao_de}
+                        banco_regen = [
+                            e for e in banco
+                            if e.nome not in nomes_outros           # nome exato bloqueado
+                            and e.nome not in pais_dos_outros       # pai de variação usada bloqueado
+                            and (e.variacao_de is None or e.variacao_de not in nomes_outros)  # variação de exercício usado bloqueada
+                        ]
+                        if cfg_r.get("demandas"):
+                            nova = gerar_sessao_por_demandas(
+                                banco_regen, demandas=cfg_r["demandas"],
+                                equipamentos_bloqueados=cfg_r.get("equipamentos_bloqueados", []),
+                                max_complexidade=cfg_r.get("max_complexidade", 5),
+                                tamanho_bloco=cfg_r.get("tamanho_bloco", 2),
+                                exercicios_travados=cfg_r.get("exercicios_travados", []),
+                                evitar_agonistas=cfg_r.get("evitar_agonistas", False),
+                            )
+                        else:
+                            nova = gerar_sessao(
+                                banco_regen, cfg_r["padroes"],
+                                exercicios_por_padrao=cfg_r["exercicios_por_padrao"],
+                                equipamentos_bloqueados=cfg_r.get("equipamentos_bloqueados", []),
+                                max_complexidade=cfg_r.get("max_complexidade", 5),
+                                tamanho_bloco=cfg_r.get("tamanho_bloco", 2),
+                                exercicios_travados=cfg_r.get("exercicios_travados", []),
+                                evitar_agonistas=cfg_r.get("evitar_agonistas", False),
+                            )
                         st.session_state.sessoes[t] = nova
                         st.session_state.sub_alvo[t] = None
                         st.session_state.candidatos[t] = []
+                        salvar_sessoes(st.session_state.sessoes)
                         st.rerun()
                 with ca3:
                     modo_atual = st.session_state.modo_viz[t]
@@ -940,4 +1544,101 @@ with tab_alunos:
                     if st.button("🗑", key=f"del_{i}", help=f"Remover {aluno['nome']}"):
                         alunos_atual.pop(i)
                         salvar_alunos(alunos_atual)
+                        st.rerun()
+
+# ===========================================================================
+# TAB HISTÓRICO
+# ===========================================================================
+with tab_historico:
+    st.markdown(
+        "<p style='font-size:11px;color:#9ca3af;margin:0 0 2px 0;"
+        "text-transform:uppercase;letter-spacing:0.08em'>Registros salvos</p>"
+        "<p style='font-size:20px;font-weight:600;color:#111827;margin:0 0 16px 0'>Histórico de treinos</p>",
+        unsafe_allow_html=True,
+    )
+
+    historico = carregar_historico()
+
+    if not historico:
+        st.markdown(
+            "<div style='text-align:center;padding:60px 20px;color:#9ca3af'>"
+            "<div style='font-size:40px;margin-bottom:12px'>📋</div>"
+            "<div style='font-size:15px;font-weight:500;color:#374151'>Nenhum treino salvo ainda</div>"
+            "<div style='font-size:13px;margin-top:6px'>Gere um treino e clique em "
+            "<b>💾 Salvar no histórico</b> para registrá-lo aqui.</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.caption(f"{len(historico)} registro(s)")
+        st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
+
+        for reg in historico:
+            reg_id   = reg["id"]
+            data     = reg.get("data", "—")
+            aluno    = reg.get("aluno", "—")
+            etiqueta = reg.get("etiqueta", "—")
+            n_sess   = reg.get("n_treinos", len(reg.get("sessoes", [])))
+
+            # Card do registro
+            with st.container():
+                col_info, col_acoes = st.columns([5, 2])
+                with col_info:
+                    treinos_label = "treino" if n_sess == 1 else "treinos"
+                    st.markdown(
+                        f"<div style='background:#f9fafb;border:1px solid #e5e7eb;"
+                        f"border-radius:10px;padding:14px 18px;margin-bottom:8px'>"
+                        f"<p style='margin:0;font-size:15px;font-weight:600;color:#111827'>"
+                        f"{etiqueta}</p>"
+                        f"<p style='margin:4px 0 0 0;font-size:12px;color:#6b7280'>"
+                        f"<b>Aluno/Turma:</b> {aluno} &nbsp;·&nbsp; "
+                        f"<b>Data:</b> {data} &nbsp;·&nbsp; "
+                        f"<b>{n_sess} {treinos_label}</b></p>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                with col_acoes:
+                    # Expandir para ver o conteúdo
+                    with st.expander("👁 Ver treinos"):
+                        try:
+                            sessoes_reg = [_dict_to_sessao(s) for s in reg["sessoes"]]
+                            for ti, sessao_h in enumerate(sessoes_reg):
+                                cats = " · ".join(
+                                    PADROES_LABELS.get(p, p)
+                                    for p in sessao_h.tipo.split(" + ") if p
+                                )
+                                st.markdown(
+                                    f"<p style='font-size:11px;font-weight:700;color:#e85d04;"
+                                    f"text-transform:uppercase;letter-spacing:0.08em;"
+                                    f"margin:10px 0 6px 0'>Treino {ti+1} — {cats}</p>",
+                                    unsafe_allow_html=True,
+                                )
+                                render_slim(sessao_h)
+                        except Exception as e:
+                            st.caption(f"Erro ao carregar: {e}")
+
+                    # Carregar para editar
+                    if st.button("↩ Carregar", key=f"load_{reg_id}",
+                                 use_container_width=True,
+                                 help="Carrega estes treinos na aba principal para editar"):
+                        try:
+                            sessoes_reg = [_dict_to_sessao(s) for s in reg["sessoes"]]
+                            n = len(sessoes_reg)
+                            st.session_state.sessoes        = sessoes_reg
+                            st.session_state.configs_geradas = []
+                            st.session_state.sub_alvo       = [None] * n
+                            st.session_state.candidatos     = [[] for _ in range(n)]
+                            st.session_state.modo_viz       = ["visualizar"] * n
+                            salvar_sessoes(sessoes_reg)
+                            st.success("Treinos carregados! Role a página para ver o resultado.")
+                        except Exception as e:
+                            st.error(f"Erro ao carregar: {e}")
+
+                    # Deletar registro
+                    if st.button("🗑 Apagar", key=f"del_hist_{reg_id}",
+                                 use_container_width=True,
+                                 help="Remove este registro do histórico"):
+                        historico_novo = [r for r in historico if r["id"] != reg_id]
+                        salvar_historico(historico_novo)
                         st.rerun()
