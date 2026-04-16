@@ -73,6 +73,11 @@ section[data-testid="stSidebar"] { display: none !important; }
 .stCheckbox label { font-size: 12px !important; padding: 1px 0 !important; }
 .stCheckbox label p { font-size: 12px !important; margin: 0 !important; line-height: 1.4 !important; }
 
+/* Toggles compactos (usados nos refinamentos de hierarquia) */
+.stToggle { margin-bottom: 0 !important; padding: 0 !important; min-height: 0 !important; }
+.stToggle > label { display: none !important; }
+.stToggle > div { margin-top: 2px !important; }
+
 /* Sliders compactos */
 .stSlider { margin-bottom: 2px !important; padding-bottom: 0 !important; }
 .stSlider label, .stSlider label p { font-size: 11px !important; margin-bottom: 0px !important; color: #6b7280 !important; }
@@ -937,11 +942,9 @@ def ui_config_treino(t: int) -> dict:
         # quantidade. Comportamento A continua: se filhos específicos são
         # marcados, eles substituem o pai dentro daquele ramo.
         st.markdown(
-            "<p style='font-size:11px;color:#6b7280;text-transform:uppercase;"
-            "letter-spacing:0.07em;margin:8px 0 6px 0'>Selecionar grupos</p>"
-            "<p style='font-size:11px;color:#9ca3af;margin:0 0 8px 0'>"
-            "Marque um grupo (em qualquer nível) e defina quantos exercícios "
-            "quer dele. Expanda para refinar.</p>",
+            "<p style='font-size:11px;color:#9ca3af;margin:6px 0 10px 0'>"
+            "Marque um grupo e defina quantos exercícios. "
+            "Use o toggle ▸ para refinar em subgrupos.</p>",
             unsafe_allow_html=True,
         )
 
@@ -950,60 +953,88 @@ def ui_config_treino(t: int) -> dict:
         subs_marcadas_por_regiao: dict[str, list[str]] = {}
         pads_marcados_por_subregiao: dict[str, list[str]] = {}
 
+        # Layout em 3 colunas: Superiores | Inferiores | Core + Cardio
+        col_upper, col_lower, col_other = st.columns([5, 5, 3])
+        col_map = {
+            "upper":  col_upper,
+            "lower":  col_lower,
+            "core":   col_other,
+            "cardio": col_other,
+        }
+
         for regiao in ORDEM_REGIOES:
             if regiao not in REGIAO_PARA_SUBREGIOES:
                 continue
             regiao_lbl = REGIOES_LABELS.get(regiao, regiao)
 
-            col_chk, col_exp = st.columns([1, 4])
-            with col_chk:
-                marcado_regiao = st.checkbox(
-                    regiao_lbl, key=f"reg_{t}_{regiao}",
-                )
-            with col_exp:
-                expandido_regiao = st.toggle(
-                    "refinar", key=f"reg_exp_{t}_{regiao}",
-                    label_visibility="collapsed",
-                    help=f"Expandir {regiao_lbl} para escolher subregiões/padrões",
+            with col_map[regiao]:
+                # Header visual da região
+                st.markdown(
+                    f"<div style='background:#fff7ed;border-left:3px solid #e85d04;"
+                    f"padding:5px 10px;margin:4px 0 6px;border-radius:0 4px 4px 0'>"
+                    f"<span style='font-size:11px;font-weight:700;color:#c2410c;"
+                    f"text-transform:uppercase;letter-spacing:.06em'>{regiao_lbl}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
                 )
 
-            if marcado_regiao:
-                regioes_marcadas.append(regiao)
+                # Linha da região: checkbox "Todos" + toggle refinar
+                rc, rt = st.columns([6, 1])
+                with rc:
+                    marcado_regiao = st.checkbox(
+                        "Todos os grupos", key=f"reg_{t}_{regiao}",
+                    )
+                with rt:
+                    expandido_regiao = st.toggle(
+                        "r", key=f"reg_exp_{t}_{regiao}",
+                        label_visibility="collapsed",
+                        help=f"Refinar {regiao_lbl} por subgrupo",
+                    )
 
-            if expandido_regiao:
-                subs_aqui: list[str] = []
-                for subregiao in ORDEM_SUBREGIOES.get(regiao, []):
-                    sub_lbl = SUBREGIOES_LABELS.get(subregiao, subregiao)
-                    cs_chk, cs_exp = st.columns([1, 4])
-                    with cs_chk:
-                        marcado_sub = st.checkbox(
-                            f"  └ {sub_lbl}", key=f"sub_{t}_{subregiao}",
-                        )
-                    with cs_exp:
+                if marcado_regiao:
+                    regioes_marcadas.append(regiao)
+
+                if expandido_regiao:
+                    subs_aqui: list[str] = []
+                    for subregiao in ORDEM_SUBREGIOES.get(regiao, []):
+                        sub_lbl = SUBREGIOES_LABELS.get(subregiao, subregiao)
                         padroes_da_sub = ORDEM_PADROES.get(subregiao, [])
-                        expandido_sub = False
-                        if len(padroes_da_sub) > 1:
-                            expandido_sub = st.toggle(
-                                "refinar", key=f"sub_exp_{t}_{subregiao}",
-                                label_visibility="collapsed",
-                                help=f"Expandir {sub_lbl} para escolher padrões",
-                            )
 
-                    if marcado_sub:
-                        subs_aqui.append(subregiao)
+                        # Subregião: indentada via coluna vazia à esquerda
+                        _, s_col = st.columns([0.07, 0.93])
+                        with s_col:
+                            s_chk, s_tog = st.columns([6, 1])
+                            with s_chk:
+                                marcado_sub = st.checkbox(
+                                    sub_lbl, key=f"sub_{t}_{subregiao}",
+                                )
+                            with s_tog:
+                                expandido_sub = False
+                                if len(padroes_da_sub) > 1:
+                                    expandido_sub = st.toggle(
+                                        "r", key=f"sub_exp_{t}_{subregiao}",
+                                        label_visibility="collapsed",
+                                        help=f"Refinar {sub_lbl} por padrão",
+                                    )
 
-                    if expandido_sub:
-                        pads_aqui: list[str] = []
-                        for padrao in padroes_da_sub:
-                            pad_lbl = PADROES_LABELS.get(padrao, padrao)
-                            marcado_pad = st.checkbox(
-                                f"      └ {pad_lbl}", key=f"pad_{t}_{padrao}",
-                            )
-                            if marcado_pad:
-                                pads_aqui.append(padrao)
-                        pads_marcados_por_subregiao[subregiao] = pads_aqui
+                        if marcado_sub:
+                            subs_aqui.append(subregiao)
 
-                subs_marcadas_por_regiao[regiao] = subs_aqui
+                        if expandido_sub:
+                            pads_aqui: list[str] = []
+                            for padrao in padroes_da_sub:
+                                pad_lbl = PADROES_LABELS.get(padrao, padrao)
+                                # Padrão: indentação dupla
+                                _, p_col = st.columns([0.14, 0.86])
+                                with p_col:
+                                    marcado_pad = st.checkbox(
+                                        pad_lbl, key=f"pad_{t}_{padrao}",
+                                    )
+                                    if marcado_pad:
+                                        pads_aqui.append(padrao)
+                            pads_marcados_por_subregiao[subregiao] = pads_aqui
+
+                    subs_marcadas_por_regiao[regiao] = subs_aqui
 
         # ── Resolver Comportamento A e montar lista de demandas ───────────
         # Demanda = (nivel, escopo, qtd). Para cada item marcado, cria 1.

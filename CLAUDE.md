@@ -73,6 +73,7 @@ Constantes em `gerador_treino.py`:
 - `REGIAO_PARA_SUBREGIOES`, `SUBREGIAO_PARA_PADROES` — derivados automaticamente
 - `PADROES_COMPOSTOS` — padrões priorizados na geração: `squat`, `hinge`, `empurrar_compostos`, `remadas`, `puxadas`, `ombro_composto`
 - `PROPORCAO_COMPOSTOS = 0.6` — ao menos 60% compostos em demandas de nível região
+- `GRUPO_MUSCULAR_PADRAO` — agrupa padrões em grupos funcionais (`push`, `pull`, `quad`, `hamstring`, `glute`, `addutor`, `calf`, `core`, `cardio`) para evitar pares agonistas nos blocos
 
 Funções auxiliares de hierarquia:
 - `expandir_para_padroes(regioes, subregioes, padroes)` — recebe seleções de qualquer nível e retorna lista plana de padrões (usada pelo `gerar_sessao()` legado e pelos templates)
@@ -95,13 +96,15 @@ Recebe lista de **demandas** `[(nivel, escopo, quantidade)]`. Para cada demanda:
 1. `gerar_sessao()` — seleciona exercícios por padrão respeitando similaridade, depois chama `montar_blocos()`
 2. `selecionar_sem_repeticao_similaridade()` — evita repetir grupos de similaridade; relaxa a regra se não houver candidatos suficientes
 3. `ordenar_compostos_primeiro()` — compostos por fadiga desc, depois o resto por fadiga desc
-4. `montar_blocos()` — distribui exercícios em blocos via helper `_buscar_candidato()` com 4 níveis de prioridade:
+4. `montar_blocos()` — distribui exercícios em blocos via helper `_buscar_candidato()`. Dentro de cada nível geográfico, sub-preferências qualitativas (melhor → pior):
    - P1: região diferente **E** padrão diferente (ideal)
    - P2: região diferente
    - P3: padrão diferente
    - P4: qualquer válido (respeitando regra de fadiga)
-   - Em blocos de **2 exercícios**: faz uma passagem extra antes das prioridades tentando evitar 2 exercícios unilaterais no mesmo bloco (blocos de 3 ignoram essa regra)
-5. `gerar_multiplos_treinos()` — gera N sessões com três camadas de bloqueio entre treinos:
+   - Dentro de cada P: prefere candidato que (1) não seja agonista do âncora E contraste purpose, (2) não seja agonista, (3) contraste purpose, (4) sem restrição
+   - Em blocos de **2 exercícios**: faz uma passagem extra tentando evitar 2 exercícios unilaterais no mesmo bloco
+5. `ordenar_blocos()` — reordena blocos por score decrescente após `montar_blocos()`. Score por exercício: composto = fadiga × 1.0; isolado de grupo grande = fadiga × 0.5; isolado de braço (bíceps/tríceps) = fadiga × 0.1. Resultado: blocos pesados (2 compostos) ficam no início; blocos com isolado de braço ficam no final.
+6. `gerar_multiplos_treinos()` — gera N sessões com três camadas de bloqueio entre treinos:
    - `nomes_globais`: bloqueia nomes exatos já usados (sempre ativo)
    - `variacao_pais_globais`: bloqueia variações de exercícios usados via campo `variacao_de` (sempre ativo, bidirecional — se "V-up" foi usado bloqueia "V-up unilateral" e vice-versa)
    - `sims_globais`: bloqueia grupos de similaridade (só quando "Evitar similaridade entre treinos" está ativo)
@@ -123,7 +126,7 @@ Blocos de 1-2 exercícios: máx 1 alta fadiga. Blocos de 3: máx 2 alta fadiga.
   - Defaults: região=6, subregião=2, padrão=1
   - Usa `gerar_sessao_por_demandas()` internamente, com regra de proporção 60% compostos para demandas de região
 - **Modo Template**: templates pré-definidos com 1 slider por padrão do template. Usa `gerar_sessao()` legado
-- Opções gerais: nº de treinos (1-5), exercícios por bloco (1/2/3), complexidade máxima, evitar similaridade entre treinos
+- Opções gerais: nº de treinos (1-5), exercícios por bloco (1/2/3), complexidade máxima, evitar similaridade entre treinos, evitar agonistas no bloco (default: ativo)
 - **Exercícios fixos** (por treino): expander "📌 Exercícios fixos" no painel de config; até 3 exercícios garantidos por treino; busca por nome + radio + botão Fixar; chave session_state `fixos_{t}` (lista de nomes); passados como `exercicios_travados` para `gerar_sessao` / `gerar_sessao_por_demandas`
 - Botão **Gerar treinos** → gera e exibe sessões
 - Botão **Resetar** → desmarca todas as seleções (prefixos `reg_`, `sub_`, `pad_`, `reg_exp_`, `sub_exp_`, `qtd_`, `epp_`), limpa sliders e exercícios fixos
